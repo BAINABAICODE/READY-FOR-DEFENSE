@@ -6,13 +6,25 @@ use App\Models\BaseColor;
 use App\Models\VisualMutation;
 use App\Support\BaseColorCatalog;
 use App\Support\VisualMutationCatalog;
+use Illuminate\Support\Collection;
 
 /**
  * Maps computed genotypes to documented phenotype text from AGAPORA datasets.
  * Never invents phenotype wording.
+ *
+ * Catalog rows are loaded once per species and genotype for this request.
+ * Joint offspring reuse those rows instead of querying again for every chick.
  */
 class PhenotypeFromGenotype
 {
+    /** @var array<string, BaseColor|null> */
+    private array $baseColors = [];
+
+    /** @var array<string, VisualMutation|null> */
+    private array $visualMutations = [];
+
+    /** @var array<int, Collection<int, VisualMutation>> */
+    private array $visualMutationsBySpecies = [];
     /**
      * @param  array<string, mixed>  $locusRow
      * @return array{phenotype: ?string, base_color: ?string, visual_mutations: list<string>, split_hidden: list<string>, note: ?string, dark_factor: ?string}
@@ -175,36 +187,41 @@ class PhenotypeFromGenotype
         }
 
         $fullCode = $darkGenotype ? $groundGenotype.'|'.$darkGenotype : $groundGenotype;
-        $record = null;
+        $record = $speciesId
+            ? $this->rememberBaseColor(
+                'combined:'.$speciesId.'|'.$fullCode,
+                function () use ($speciesId, $fullCode, $groundGenotype, $darkGenotype) {
+                    $record = BaseColor::query()
+                        ->where('lovebird_species_id', $speciesId)
+                        ->where(function ($query) use ($fullCode, $groundGenotype, $darkGenotype) {
+                            $query->where('genetic_code', $fullCode);
+                            if ($darkGenotype) {
+                                $query->orWhere('genetic_code', $groundGenotype.'|'.$darkGenotype);
+                            }
+                            $query->orWhere('genetic_code', 'like', $groundGenotype.'|%');
+                            $query->orWhere('genetic_code', $groundGenotype);
+                        })
+                        ->orderByRaw(
+                            'CASE WHEN genetic_code = ? THEN 0 WHEN genetic_code LIKE ? THEN 1 ELSE 2 END',
+                            [$fullCode, $groundGenotype.'|'.($darkGenotype ?: '').'%']
+                        )
+                        ->first();
 
-        if ($speciesId) {
-            $record = BaseColor::query()
-                ->where('lovebird_species_id', $speciesId)
-                ->where(function ($query) use ($fullCode, $groundGenotype, $darkGenotype) {
-                    $query->where('genetic_code', $fullCode);
+                    // Prefer exact ground|dark match when multiple rows share the ground segment.
                     if ($darkGenotype) {
-                        $query->orWhere('genetic_code', $groundGenotype.'|'.$darkGenotype);
+                        $exact = BaseColor::query()
+                            ->where('lovebird_species_id', $speciesId)
+                            ->where('genetic_code', $fullCode)
+                            ->first();
+                        if ($exact) {
+                            $record = $exact;
+                        }
                     }
-                    $query->orWhere('genetic_code', 'like', $groundGenotype.'|%');
-                    $query->orWhere('genetic_code', $groundGenotype);
-                })
-                ->orderByRaw(
-                    'CASE WHEN genetic_code = ? THEN 0 WHEN genetic_code LIKE ? THEN 1 ELSE 2 END',
-                    [$fullCode, $groundGenotype.'|'.($darkGenotype ?: '').'%']
-                )
-                ->first();
 
-            // Prefer exact ground|dark match when multiple rows share the ground segment.
-            if ($darkGenotype) {
-                $exact = BaseColor::query()
-                    ->where('lovebird_species_id', $speciesId)
-                    ->where('genetic_code', $fullCode)
-                    ->first();
-                if ($exact) {
-                    $record = $exact;
-                }
-            }
-        }
+                    return $record;
+                },
+            )
+            : null;
 
         $payload = BaseColorCatalog::geneticPayload($record);
 
@@ -320,24 +337,31 @@ class PhenotypeFromGenotype
      */
     private function baseColorPhenotype(?string $name, ?string $genotype, ?int $speciesId, ?string $expression, ?string $locusKey): array
     {
-        $record = null;
-        if ($speciesId && $genotype) {
-            $record = BaseColor::query()
-                ->where('lovebird_species_id', $speciesId)
-                ->where(function ($query) use ($genotype) {
-                    $query->where('genetic_code', $genotype)
-                        ->orWhere('genetic_code', 'like', $genotype.'|%');
-                })
-                ->orderByRaw('CASE WHEN genetic_code = ? THEN 0 ELSE 1 END', [$genotype])
-                ->first();
-        }
+        $record = $this->rememberBaseColor(
+            'locus:'.($speciesId ?: 0).'|'.($genotype ?? '').'|'.($name ?? ''),
+            function () use ($speciesId, $genotype, $name) {
+                $record = null;
+                if ($speciesId && $genotype) {
+                    $record = BaseColor::query()
+                        ->where('lovebird_species_id', $speciesId)
+                        ->where(function ($query) use ($genotype) {
+                            $query->where('genetic_code', $genotype)
+                                ->orWhere('genetic_code', 'like', $genotype.'|%');
+                        })
+                        ->orderByRaw('CASE WHEN genetic_code = ? THEN 0 ELSE 1 END', [$genotype])
+                        ->first();
+                }
 
-        if (! $record && $name) {
-            $record = BaseColor::query()
-                ->when($speciesId, fn ($query) => $query->where('lovebird_species_id', $speciesId))
-                ->where('name', $name)
-                ->first();
-        }
+                if (! $record && $name) {
+                    $record = BaseColor::query()
+                        ->when($speciesId, fn ($query) => $query->where('lovebird_species_id', $speciesId))
+                        ->where('name', $name)
+                        ->first();
+                }
+
+                return $record;
+            },
+        );
 
         $payload = BaseColorCatalog::geneticPayload($record);
 
@@ -378,12 +402,19 @@ class PhenotypeFromGenotype
             ];
         }
 
-        $record = VisualMutation::query()
-            ->when($speciesId, fn ($query) => $query->where('lovebird_species_id', $speciesId))
-            ->when($name, fn ($query) => $query->where('name', $name))
-            ->first();
+        $record = $this->rememberVisualMutation(
+            ($speciesId ?: 0).'|'.($name ?? ''),
+            fn () => VisualMutation::query()
+                ->when($speciesId, fn ($query) => $query->where('lovebird_species_id', $speciesId))
+                ->when($name, fn ($query) => $query->where('name', $name))
+                ->first(),
+        );
 
-        $payload = VisualMutationCatalog::geneticPayload($record);
+        $payloadSpeciesId = (int) ($record?->lovebird_species_id ?? 0);
+        $payload = VisualMutationCatalog::geneticPayload(
+            $record,
+            $payloadSpeciesId > 0 ? $this->visualMutationsForSpecies($payloadSpeciesId) : null,
+        );
         $isVisual = $this->isVisualExpression($expression);
         $isCarrier = $expression === 'carrier_split';
 
@@ -397,6 +428,42 @@ class PhenotypeFromGenotype
             'dark_factor' => null,
             'note' => $payload ? null : 'Not specified in stored phenotype record.',
         ];
+    }
+
+    /**
+     * @param  callable(): (?BaseColor)  $load
+     */
+    private function rememberBaseColor(string $key, callable $load): ?BaseColor
+    {
+        if (array_key_exists($key, $this->baseColors)) {
+            return $this->baseColors[$key];
+        }
+
+        return $this->baseColors[$key] = $load();
+    }
+
+    /**
+     * @param  callable(): (?VisualMutation)  $load
+     */
+    private function rememberVisualMutation(string $key, callable $load): ?VisualMutation
+    {
+        if (array_key_exists($key, $this->visualMutations)) {
+            return $this->visualMutations[$key];
+        }
+
+        return $this->visualMutations[$key] = $load();
+    }
+
+    /**
+     * @return Collection<int, VisualMutation>
+     */
+    private function visualMutationsForSpecies(int $speciesId): Collection
+    {
+        if (! array_key_exists($speciesId, $this->visualMutationsBySpecies)) {
+            $this->visualMutationsBySpecies[$speciesId] = VisualMutationCatalog::forSpecies($speciesId);
+        }
+
+        return $this->visualMutationsBySpecies[$speciesId];
     }
 
     private function isVisualExpression(?string $expression): bool
