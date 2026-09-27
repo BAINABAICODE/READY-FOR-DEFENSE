@@ -1,3 +1,9 @@
+{
+	frankenphp {
+		php_ini max_execution_time 120
+	}
+}
+
 :{$PORT:80} {
 	root * /app/public
 	encode zstd gzip
