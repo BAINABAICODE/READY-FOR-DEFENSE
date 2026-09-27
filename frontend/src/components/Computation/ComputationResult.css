@@ -2564,6 +2564,62 @@ a.compute-outline__btn.is-active:visited {
   align-items: start;
 }
 
+.compute-result__egg-body.is-plain {
+  grid-template-columns: 1fr;
+}
+
+.proof-dialog {
+  width: min(960px, calc(100vw - 2rem));
+  max-height: min(88vh, 920px);
+  margin: auto;
+  padding: 0;
+  border: 1px solid rgba(212, 175, 55, 0.45);
+  border-radius: 1.1rem;
+  background: #f5efe0;
+  color: #14221f;
+  box-shadow: 0 24px 60px rgba(6, 28, 19, 0.45);
+}
+
+.proof-dialog::backdrop {
+  background: rgba(6, 28, 19, 0.72);
+}
+
+.proof-dialog__bar {
+  position: sticky;
+  top: 0;
+  z-index: 2;
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 1rem;
+  padding: 0.85rem 1rem;
+  background: #0b2e1f;
+  color: #f5efe0;
+}
+
+.proof-dialog__bar p {
+  margin: 0;
+  font-size: 1.05rem;
+  font-weight: 700;
+}
+
+.proof-dialog__close {
+  border: 1px solid rgba(245, 239, 224, 0.4);
+  border-radius: 999px;
+  background: transparent;
+  color: #f5efe0;
+  font: inherit;
+  font-weight: 700;
+  padding: 0.4rem 0.9rem;
+  cursor: pointer;
+}
+
+.proof-dialog__body {
+  max-height: calc(88vh - 4.2rem);
+  overflow: auto;
+  padding: 1rem;
+}
+
 .compute-result__media img,
 .compute-result__placeholder {
   width: 100%;
@@ -2839,7 +2895,7 @@ a.compute-outline__btn.is-active:visited {
 }
 
 .phenotype-map__row.is-set::before {
-  background: var(--gold, #d4af37);
+  background: var(--region-color, var(--gold, #d4af37));
 }
 
 .phenotype-map__row + .phenotype-map__row::after {

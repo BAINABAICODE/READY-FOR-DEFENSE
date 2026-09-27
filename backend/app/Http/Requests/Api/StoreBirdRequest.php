@@ -4,7 +4,9 @@ namespace App\Http\Requests\Api;
 
 use App\Models\BaseColor;
 use App\Models\Bird;
+use App\Models\SplitGene;
 use App\Models\VisualMutation;
+use App\Support\BaseColorCatalog;
 use App\Support\MutationGroundApplicability;
 use App\Support\SplitGeneCatalog;
 use App\Support\VisualMutationCatalog;
@@ -187,6 +189,8 @@ class StoreBirdRequest extends FormRequest
                 $this->input('species_id'),
                 $this->input('visual_mutation_ids', []),
                 'visual_mutation_ids',
+                is_string($this->input('sex')) ? $this->input('sex') : null,
+                $this->input('split_gene_ids', []),
             );
             $this->rejectInapplicableVisualMutations(
                 $validator,
@@ -200,6 +204,14 @@ class StoreBirdRequest extends FormRequest
                 $this->input('split_gene_ids', []),
                 'split_gene_ids',
                 is_string($this->input('sex')) ? $this->input('sex') : null,
+                $this->input('base_color_id'),
+                $this->input('visual_mutation_ids', []),
+            );
+            $this->rejectInvalidBaseColor(
+                $validator,
+                $this->input('base_color_id'),
+                $this->input('split_gene_ids', []),
+                'base_color_id',
             );
 
             $grandparents = $this->input('grandparents', []);
@@ -218,6 +230,8 @@ class StoreBirdRequest extends FormRequest
                     $record['species_id'] ?? null,
                     $record['visual_mutation_ids'] ?? [],
                     "grandparents.{$role}.visual_mutation_ids",
+                    $this->sexForGrandparentRole($role),
+                    $record['split_gene_ids'] ?? [],
                 );
                 $this->rejectInapplicableVisualMutations(
                     $validator,
@@ -231,6 +245,14 @@ class StoreBirdRequest extends FormRequest
                     $record['split_gene_ids'] ?? [],
                     "grandparents.{$role}.split_gene_ids",
                     $this->sexForGrandparentRole($role),
+                    $record['base_color_id'] ?? null,
+                    $record['visual_mutation_ids'] ?? [],
+                );
+                $this->rejectInvalidBaseColor(
+                    $validator,
+                    $record['base_color_id'] ?? null,
+                    $record['split_gene_ids'] ?? [],
+                    "grandparents.{$role}.base_color_id",
                 );
             }
         });
@@ -261,6 +283,8 @@ class StoreBirdRequest extends FormRequest
         mixed $speciesId,
         mixed $ids,
         string $field,
+        ?string $sex = null,
+        mixed $splitIds = [],
     ): void {
         $ids = $this->normalizeIdList($ids);
         if ($ids === []) {
@@ -273,7 +297,12 @@ class StoreBirdRequest extends FormRequest
             return;
         }
 
-        $message = VisualMutationCatalog::incompatibleMessage($ids, (int) $speciesId);
+        $message = VisualMutationCatalog::incompatibleMessage(
+            $ids,
+            (int) $speciesId,
+            $sex,
+            $this->recordsByIds(SplitGene::class, $splitIds),
+        );
         if ($message !== null) {
             $validator->errors()->add($field, $message);
         }
@@ -304,6 +333,8 @@ class StoreBirdRequest extends FormRequest
         mixed $ids,
         string $field,
         ?string $sex = null,
+        mixed $baseColorId = null,
+        mixed $visualIds = [],
     ): void {
         $ids = $this->normalizeIdList($ids);
         if ($ids === []) {
@@ -316,10 +347,50 @@ class StoreBirdRequest extends FormRequest
             return;
         }
 
-        $message = SplitGeneCatalog::incompatibleMessage($ids, (int) $speciesId, $sex);
+        $color = $baseColorId === null || $baseColorId === ''
+            ? null
+            : BaseColor::query()->find((int) $baseColorId);
+        $message = SplitGeneCatalog::incompatibleMessage(
+            $ids,
+            (int) $speciesId,
+            $sex,
+            $color,
+            $this->recordsByIds(VisualMutation::class, $visualIds),
+        );
         if ($message !== null) {
             $validator->errors()->add($field, $message);
         }
+    }
+
+    private function rejectInvalidBaseColor(
+        Validator $validator,
+        mixed $baseColorId,
+        mixed $splitIds,
+        string $field,
+    ): void {
+        if ($baseColorId === null || $baseColorId === '') {
+            return;
+        }
+
+        $color = BaseColor::query()->find((int) $baseColorId);
+        $message = BaseColorCatalog::incompatibleMessage($color, $this->recordsByIds(SplitGene::class, $splitIds));
+        if ($message !== null) {
+            $validator->errors()->add($field, $message);
+        }
+    }
+
+    /**
+     * @param  class-string  $model
+     * @return \Illuminate\Support\Collection<int, mixed>
+     */
+    private function recordsByIds(string $model, mixed $ids): \Illuminate\Support\Collection
+    {
+        $ids = $this->normalizeIdList($ids);
+        if ($ids === []) {
+            return collect();
+        }
+
+        return $model::query()->whereIn('id', $ids)->get();
     }
 
     private function sexForGrandparentRole(string $role): ?string

@@ -382,7 +382,7 @@ class GicaAnalyzer
                     continue;
                 }
                 $expression = $row['expression'] ?? null;
-                if (in_array($expression, ['visual', 'visual_homozygous', 'visual_hemizygous'], true)
+                if (in_array($expression, ['visual', 'visual_homozygous', 'visual_hemizygous', 'visual_compound'], true)
                     && ((float) ($row['probability'] ?? 0)) > 0) {
                     $affected[] = [
                         'type' => 'recessive_visual_outcome',
@@ -452,8 +452,8 @@ class GicaAnalyzer
         $warnings = [];
         $lociNotes = [];
 
-        $codeOne = $parentOne->baseColor?->genetic_code;
-        $codeTwo = $parentTwo->baseColor?->genetic_code;
+        $codeOne = $this->resolvedParentGenotype($parentOne, $prediction) ?? $parentOne->baseColor?->genetic_code;
+        $codeTwo = $this->resolvedParentGenotype($parentTwo, $prediction) ?? $parentTwo->baseColor?->genetic_code;
         if ($codeOne && $codeTwo) {
             if (strcasecmp(trim($codeOne), trim($codeTwo)) !== 0) {
                 $points += 4;
@@ -600,5 +600,28 @@ class GicaAnalyzer
             'positives' => $positives,
             'warnings' => $warn,
         ];
+    }
+
+    /**
+     * Genotype actually crossed: hidden splits replace a wild-type base color at that locus.
+     *
+     * @param  array<string, mixed>  $prediction
+     */
+    private function resolvedParentGenotype(Bird $bird, array $prediction): ?string
+    {
+        $side = $bird->sex === Bird::SEX_COCK ? 'genetic_code_cock' : 'genetic_code_hen';
+        $parts = [];
+        foreach (['ground_color', 'dark_factor'] as $key) {
+            foreach ($prediction['outcomes'] ?? [] as $outcome) {
+                if (! is_array($outcome) || ($outcome['locus_key'] ?? null) !== $key || ($outcome['status'] ?? null) !== 'calculated') {
+                    continue;
+                }
+                if (! empty($outcome[$side])) {
+                    $parts[] = $outcome[$side];
+                }
+            }
+        }
+
+        return $parts === [] ? null : implode('|', $parts);
     }
 }

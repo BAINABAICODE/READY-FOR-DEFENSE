@@ -4,7 +4,7 @@ import { buildRbgiaTrace, groupVisualOutcomes, sumProbabilities } from '../index
 /** Shapes copied from a live GET /api/computation-results/{id} response (values, not invented). */
 const storedGreywing = [
   { genotype: 'Grw+/Grw+', sex: 'cock', probability: 0.25, expression: 'non_carrier', phenotype: 'Wild' },
-  { genotype: 'Grw+/Grw', sex: 'cock', probability: 0.25, expression: 'visual_heterozygous', phenotype: 'SL Greywing SF' },
+  { genotype: 'Grw+/Grw', sex: 'cock', probability: 0.25, expression: 'visual_single_factor', phenotype: 'SL Greywing SF' },
   { genotype: 'Grw+/W', sex: 'hen', probability: 0.25, expression: 'hemizygous_wild', phenotype: 'Wild' },
   { genotype: 'Grw/W', sex: 'hen', probability: 0.25, expression: 'visual_hemizygous', phenotype: 'SL Greywing' },
 ]
@@ -35,7 +35,7 @@ const result = {
           punnett: { parent_1_alleles: ['D+', 'D+'], parent_2_alleles: ['D+', 'D'], sex_linked: false },
           results: [
             { genotype: 'D+/D+', sex: 'both', probability: 0.5, expression: 'non_carrier', phenotype: 'No dark factor' },
-            { genotype: 'D+/D', sex: 'both', probability: 0.5, expression: 'visual_heterozygous', phenotype: null },
+            { genotype: 'D+/D', sex: 'both', probability: 0.5, expression: 'visual_single_factor', phenotype: 'Single dark factor (SF)' },
           ],
         },
         {
@@ -70,7 +70,7 @@ describe('buildRbgiaTrace on a live-shaped payload', () => {
     expect(greywing.square.cells.filter((c) => c.sex === 'hen')).toHaveLength(2)
     expect(greywing.chromosomes.cock.karyotype).toBe('ZZ')
     expect(greywing.chromosomes.hen.karyotype).toBe('ZW')
-    expect(greywing.outcomes.map((o) => o.sexLinkedClass).sort()).toEqual(['carrier male', 'non-carrier male', 'non-visual female', 'visual female'].sort())
+    expect(greywing.outcomes.map((o) => o.sexLinkedClass).sort()).toEqual(['non-carrier male', 'non-visual female', 'visual female', 'visual male'].sort())
   })
 
   it('joint outcomes sum to exactly 100% and carry the product-of-loci formula', () => {

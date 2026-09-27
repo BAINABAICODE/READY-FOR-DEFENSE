@@ -53,18 +53,18 @@ export default function ComplexitySection({ mode, report, proves }) {
 
   return (
     <section className="compute-result__card compute-section-panel">
-      <p className="compute-result__eyebrow">Step 08 · {report.method} · counted from this stored run</p>
-      <h2>{isTime ? 'Time complexity' : 'Space complexity'}</h2>
+      <p className="compute-result__eyebrow">08 · Optional · this does not change the chicks or the score</p>
+      <h2>{isTime ? 'How much time this run took' : 'How much this run stored'}</h2>
       {proves ? (
         <p className="compute-proves">
-          <span className="compute-proves__label">What this proves</span>
+          <span className="compute-proves__label">Why this step</span>
           {proves}
         </p>
       ) : null}
-      <p className="compute-result__empty">
+      <p className="compute-read">
         {isTime
-          ? 'This chapter is not genetics. It counts the work this pair actually required: Punnett cells per locus, the joint genotype product, GICA factors, and clutch stages. Offspring odds are not recalculated here.'
-          : 'This chapter is not genetics. It counts the data this result kept: Punnett cells, retained offspring rows, GICA factor records, and simulated eggs. Nothing extra is allocated beyond those stored structures.'}
+          ? 'Why: a beginner can ignore this and the breeding result stays the same. How: each row counts the Punnett cells, chick combinations, score factors, and nest stages this pair actually used.'
+          : 'Why: this is bookkeeping, not a second genetic cross. How: each row counts the squares, chick rows, score records, and eggs this result kept.'}
       </p>
 
       <div className="compute-summary__grid compute-summary__grid--forecast">

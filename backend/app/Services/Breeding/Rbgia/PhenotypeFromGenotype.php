@@ -52,11 +52,11 @@ class PhenotypeFromGenotype
             return [
                 'phenotype' => $expression === 'carrier_split'
                     ? 'Carrier / split state for '.($name ?? 'gene').' (not necessarily visual)'
-                    : ($expression === 'visual' || $expression === 'visual_hemizygous'
+                    : ($this->isVisualExpression($expression)
                         ? ($name.' visual expression when homozygous/hemizygous')
                         : null),
                 'base_color' => null,
-                'visual_mutations' => in_array($expression, ['visual', 'visual_hemizygous', 'visual_homozygous', 'visual_heterozygous'], true)
+                'visual_mutations' => $this->isVisualExpression($expression)
                     ? array_values(array_filter([$name]))
                     : [],
                 'split_hidden' => $expression === 'carrier_split' ? array_values(array_filter([$name])) : [],
@@ -83,7 +83,8 @@ class PhenotypeFromGenotype
     {
         $groundGenotype = null;
         $darkGenotype = null;
-        $groundHint = null;
+        $groundExpression = null;
+        $groundLocus = null;
         $visual = [];
         $split = [];
         $parts = [];
@@ -99,7 +100,8 @@ class PhenotypeFromGenotype
 
             if ($key === 'ground_color') {
                 $groundGenotype = $locus['genotype'] ?? null;
-                $groundHint = $locus['name'] ?? null;
+                $groundExpression = $locus['expression'] ?? null;
+                $groundLocus = $locus;
             }
 
             if ($key === 'dark_factor') {
@@ -132,9 +134,19 @@ class PhenotypeFromGenotype
             }
         }
 
-        $combined = $this->resolveCombinedBaseColor($groundGenotype, $darkGenotype, $speciesId, $groundHint);
+        $combined = $this->resolveCombinedBaseColor($groundGenotype, $darkGenotype, $speciesId);
+        $labeled = $this->labeledGround($groundLocus, $groundExpression);
+        if (empty($combined['base_color']) && ! empty($labeled['base_color'])) {
+            $combined['base_color'] = $labeled['base_color'];
+            $combined['phenotype'] = $labeled['phenotype'] ?? $labeled['base_color'];
+        }
+        foreach ($labeled['splits'] as $name) {
+            $split[] = $name;
+        }
         if (! empty($combined['phenotype'])) {
             array_unshift($parts, $combined['phenotype']);
+        } elseif ($groundExpression === 'carrier_split') {
+            array_unshift($parts, 'Carrier / split. The visual mutant color is not expressed.');
         }
 
         $visual = array_values(array_unique($visual));
@@ -156,7 +168,7 @@ class PhenotypeFromGenotype
     /**
      * @return array{base_color: ?string, phenotype: ?string, genotype: ?string}
      */
-    private function resolveCombinedBaseColor(?string $groundGenotype, ?string $darkGenotype, ?int $speciesId, ?string $hint): array
+    private function resolveCombinedBaseColor(?string $groundGenotype, ?string $darkGenotype, ?int $speciesId): array
     {
         if (! $groundGenotype) {
             return ['base_color' => null, 'phenotype' => null, 'genotype' => null];
@@ -197,10 +209,80 @@ class PhenotypeFromGenotype
         $payload = BaseColorCatalog::geneticPayload($record);
 
         return [
-            'base_color' => $payload['name'] ?? $hint,
-            'phenotype' => $payload['phenotype'] ?? ($payload['name'] ?? $hint),
+            'base_color' => $payload['name'] ?? null,
+            'phenotype' => $payload['phenotype'] ?? ($payload['name'] ?? null),
             'genotype' => $fullCode,
         ];
+    }
+
+    /**
+     * Stored allele names for a ground-color genotype that has no heterozygous base-color row.
+     * A recessive heterozygote keeps the wild-type color and hides the mutant color.
+     *
+     * @param  array<string, mixed>|null  $locus
+     * @return array{base_color: ?string, phenotype: ?string, splits: list<string>}
+     */
+    private function labeledGround(?array $locus, ?string $expression): array
+    {
+        $empty = ['base_color' => null, 'phenotype' => null, 'splits' => []];
+        $labels = is_array($locus['allele_phenotypes'] ?? null) ? $locus['allele_phenotypes'] : [];
+        $genotype = $locus['genotype'] ?? null;
+        if ($labels === [] || ! is_string($genotype) || $genotype === '') {
+            return $empty;
+        }
+
+        $wild = [];
+        $mutants = [];
+        foreach (array_map('trim', explode('/', $genotype)) as $allele) {
+            if ($allele === '' || strcasecmp($allele, 'W') === 0) {
+                continue;
+            }
+            if (str_ends_with($allele, '+')) {
+                $wild[] = $allele;
+            } else {
+                $mutants[] = $allele;
+            }
+        }
+
+        $label = function (string $allele) use ($labels): ?string {
+            $name = $labels[$allele] ?? null;
+
+            return is_string($name) && $name !== '' ? $name : null;
+        };
+
+        if ($expression === 'carrier_split') {
+            $visible = $wild !== [] ? $label($wild[0]) : null;
+            $splits = [];
+            foreach ($mutants as $mutant) {
+                $name = $label($mutant);
+                if ($name) {
+                    $splits[] = $name;
+                }
+            }
+
+            return ['base_color' => $visible, 'phenotype' => $visible, 'splits' => $splits];
+        }
+
+        if ($expression === 'non_carrier' && $wild !== []) {
+            $visible = $label($wild[0]);
+
+            return ['base_color' => $visible, 'phenotype' => $visible, 'splits' => []];
+        }
+
+        if ($this->isVisualExpression($expression) && $mutants !== []) {
+            $names = [];
+            foreach (array_unique($mutants) as $mutant) {
+                $name = $label($mutant);
+                if ($name) {
+                    $names[] = $name;
+                }
+            }
+            $visible = $names === [] ? null : implode(' + ', $names);
+
+            return ['base_color' => $visible, 'phenotype' => $visible, 'splits' => []];
+        }
+
+        return $empty;
     }
 
     /**
@@ -259,6 +341,17 @@ class PhenotypeFromGenotype
 
         $payload = BaseColorCatalog::geneticPayload($record);
 
+        if (! $record && $expression === 'carrier_split') {
+            return [
+                'phenotype' => 'Carrier / split. The visual mutant color is not expressed.',
+                'base_color' => null,
+                'visual_mutations' => [],
+                'split_hidden' => [],
+                'dark_factor' => null,
+                'note' => 'No stored base-color row matches this heterozygous genotype.',
+            ];
+        }
+
         return [
             'phenotype' => $payload['phenotype'] ?? ($name ? $name.' expression' : null),
             'base_color' => $locusKey === 'dark_factor' ? null : ($payload['name'] ?? $name),
@@ -274,13 +367,24 @@ class PhenotypeFromGenotype
      */
     private function visualPhenotype(?string $name, ?string $genotype, ?int $speciesId, ?string $expression): array
     {
+        if (in_array($expression, ['non_carrier', 'hemizygous_wild'], true)) {
+            return [
+                'phenotype' => 'Non-carrier for '.($name ?? 'mutation'),
+                'base_color' => null,
+                'visual_mutations' => [],
+                'split_hidden' => [],
+                'dark_factor' => null,
+                'note' => 'Wild-type genotype at this locus. The mutation phenotype is not expressed.',
+            ];
+        }
+
         $record = VisualMutation::query()
             ->when($speciesId, fn ($query) => $query->where('lovebird_species_id', $speciesId))
             ->when($name, fn ($query) => $query->where('name', $name))
             ->first();
 
         $payload = VisualMutationCatalog::geneticPayload($record);
-        $isVisual = in_array($expression, ['visual', 'visual_homozygous', 'visual_heterozygous', 'visual_hemizygous', 'visual_single_factor', 'visual_double'], true);
+        $isVisual = $this->isVisualExpression($expression);
         $isCarrier = $expression === 'carrier_split';
 
         return [
@@ -293,5 +397,18 @@ class PhenotypeFromGenotype
             'dark_factor' => null,
             'note' => $payload ? null : 'Not specified in stored phenotype record.',
         ];
+    }
+
+    private function isVisualExpression(?string $expression): bool
+    {
+        return in_array($expression, [
+            'visual',
+            'visual_homozygous',
+            'visual_heterozygous',
+            'visual_hemizygous',
+            'visual_single_factor',
+            'visual_double',
+            'visual_compound',
+        ], true);
     }
 }

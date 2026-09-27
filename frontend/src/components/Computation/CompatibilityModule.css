@@ -571,6 +571,10 @@
 .gx-card__facts > div { display: grid; grid-template-columns: 110px 1fr; gap: 8px; align-items: start; }
 .gx-card__facts dt { font-size: 12px; font-weight: 600; color: var(--muted); text-transform: uppercase; letter-spacing: 0.04em; }
 .gx-card__facts dd { margin: 0; font-size: 13.5px; }
+.gx-passed { list-style: none; margin: 0; padding: 0; display: grid; gap: 4px; }
+.gx-passed li { display: flex; flex-wrap: wrap; gap: 6px 10px; align-items: baseline; }
+.gx-passed__locus { font-weight: 650; min-width: 8rem; }
+.gx-passed code { font-size: 12px; }
 .gx-card__loci { margin: 0; padding: 0; list-style: none; display: grid; gap: 3px; }
 .gx-card__loci li { display: flex; gap: 6px; align-items: center; flex-wrap: wrap; font-size: 12.5px; }
 .gx-card__locus-name { color: var(--muted); }

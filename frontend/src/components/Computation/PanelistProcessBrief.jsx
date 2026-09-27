@@ -85,10 +85,6 @@ function factorLine(factor, fallback) {
   return `${factor.points} / ${factor.max} points · ${weight}`
 }
 
-/**
- * Opening board after a breeding run. Panelists see the full why-and-how
- * process here before the chapter proofs below.
- */
 export default function PanelistProcessBrief({
   pair,
   gica,
@@ -101,6 +97,7 @@ export default function PanelistProcessBrief({
   species,
   parentSnapshot,
   onOpen,
+  onDownload,
 }) {
   const model = useMemo(
     () => buildCompatibilityModel(gica || {}, species || {}),
@@ -118,96 +115,48 @@ export default function PanelistProcessBrief({
   const hatchlings = documented(forecast?.estimated_hatchlings)
   const hatchRate = documented(forecast?.hatch_rate || forecast?.hatch_rate_percent)
   const hatchPct = formatPct(forecast?.hatch_rate ?? forecast?.hatch_rate_percent)
-  const deterministic = summary.deterministic !== false && algorithm?.deterministic !== false
   const factors = model.factors || []
   const factorByKey = Object.fromEntries(factors.map((factor) => [factor.key, factor]))
 
-  const phases = [
-    {
-      id: 'normalize',
-      n: '01',
-      title: 'Normalize the stored pair',
-      why: 'Later steps cannot invent a genotype that was never stored. Looks are not scored.',
-      how: 'Phenotype, genotype, visual mutations, and known split or carrier genes are read from the parent records and kept in a consistent form. A missing gene stays missing.',
-      proof: 'compatibility',
-      proofLabel: 'Open the encoded pair',
-    },
-    {
-      id: 'map',
-      n: '02',
-      title: 'Map inheritance with RBGIA',
-      why: 'Mendelian segregation, independent assortment, and chromosomal sex-linkage have to stay visible. The same parents must always fill the same Punnett boxes.',
-      how: 'Each stored gene is translated into alleles, split into gametes, and crossed. Dominant, recessive, and sex-linked genes each follow their own rule. The result is a genotype probability distribution, not a dice roll.',
-      proof: 'inheritance',
-      proofLabel: 'Open the RBGIA computation',
-    },
-    {
-      id: 'phenotype',
-      n: '03',
-      title: 'Resolve the phenotype',
-      why: 'Breeders judge visible traits. The score also needs the hidden splits those looks can carry.',
-      how: 'Each genotype is mapped to base color, a visual mutation, or a hidden split. A mutation that changes the color series can override the base. A split that is already visual is not listed twice.',
-      proof: 'distribution',
-      proofLabel: 'Open offspring odds',
-    },
-    {
-      id: 'score',
-      n: '04',
-      title: 'Weight the pair with GICA',
-      why: 'One score has to show desirable traits, recessive risk, genetic diversity, and mutation load. It must not rewrite the RBGIA fractions.',
-      how: 'Each factor earns points out of a fixed maximum. That maximum is its weight. Raw is points divided by the maximum. The score is the weighted sum, from 0 to 100.',
-      proof: 'gica',
-      proofLabel: 'Open the weight scoring',
-    },
-    {
-      id: 'forecast',
-      n: '05',
-      title: 'Forecast clutch and hatchlings',
-      why: 'Clutch size is not a fixed number of chicks. The forecast is a decision-support estimate inside the species range.',
-      how: 'The species clutch range is adjusted by the compatibility score, genetic diversity, and mutation or genetic load. Expected hatchlings apply the stored hatch rate to the forecasted eggs.',
-      proof: 'forecast',
-      proofLabel: 'Open the clutch forecast',
-    },
-  ]
-
+  const recommendation = pair?.recommendation || gica?.recommendation || ''
   const ledger = [
-    { label: 'Encoded parents', value: `${parent1} × ${parent2}`, section: 'compatibility' },
-    { label: 'Algorithm', value: `${method} · ${deterministic ? 'deterministic' : 'determinism not confirmed'}`, section: 'flow' },
-    { label: 'RBGIA genes', value: loci.length ? `${modes.total} genes · ${summary.totalOutcomes ?? '—'} joint genotypes` : 'No per-gene trace stored', section: 'inheritance' },
-    { label: 'Dominant · recessive · sex-linked', value: loci.length ? `${modes.dominant} dominant · ${modes.recessive} recessive · ${modes.sexLinked} sex-linked` : 'Not calculated', section: 'inheritance' },
+    { label: 'Pair', value: `${parent1} × ${parent2}`, section: 'compatibility' },
+    { label: 'Score', value: `${scoreText} · ${status}`, section: 'final-output' },
+    { label: 'Sex of chicks', value: joinOutcomes(probabilities?.sex), section: 'distribution' },
     {
-      label: 'Genotype distribution',
-      value: distributionValue(probabilities?.genotype, 'joint genotypes'),
-      section: 'distribution',
-    },
-    {
-      label: 'Phenotype distribution',
+      label: 'Looks',
       value: summary.appearanceCount
         ? joinOutcomes(rbgiaTrace?.appearanceOutcomes, 2)
-        : distributionValue(probabilities?.phenotype, 'phenotypes'),
+        : distributionValue(probabilities?.phenotype, 'looks'),
       section: 'distribution',
     },
     { label: 'Visual mutations', value: joinOutcomes(probabilities?.visual_mutations), section: 'distribution' },
-    { label: 'Split / hidden genes', value: joinOutcomes(probabilities?.split_hidden_genes), section: 'distribution' },
-    { label: 'Sex distribution', value: joinOutcomes(probabilities?.sex), section: 'distribution' },
-    { label: 'GICA score', value: `${scoreText} · ${status}`, section: 'final-output' },
-    { label: 'Desirable / inheritance information', value: factorLine(factorByKey.inheritance_information), section: 'gica' },
-    { label: 'Recessive risk', value: factorLine(factorByKey.genetic_risk, gica?.risk?.level ? `Risk level ${gica.risk.level}` : null), section: 'gica' },
-    { label: 'Genetic diversity', value: factorLine(factorByKey.genetic_diversity, gica?.diversity?.level ? `Diversity ${gica.diversity.level}` : null), section: 'gica' },
-    { label: 'Mutation / genetic load', value: factorLine(factorByKey.mutation_compatibility), section: 'gica' },
-    { label: 'Species fit', value: factorLine(factorByKey.species_compatibility), section: 'gica' },
-    { label: 'Breeding constraints', value: factorLine(factorByKey.breeding_constraints), section: 'gica' },
-    { label: 'Forecasted eggs', value: eggs || 'Not documented', section: 'forecast' },
-    { label: 'Expected hatchlings', value: hatchlings || 'Not documented', section: 'forecast' },
+    { label: 'Hidden genes', value: joinOutcomes(probabilities?.split_hidden_genes), section: 'distribution' },
+    { label: 'Expected eggs', value: eggs || 'Not documented', section: 'forecast' },
+    { label: 'Expected chicks', value: hatchlings || 'Not documented', section: 'forecast' },
     { label: 'Hatch rate', value: hatchPct || hatchRate || 'Not documented', section: 'forecast' },
     {
-      label: 'Time complexity',
-      value: complexityReport ? `${complexityReport.time.bound} · ${complexityReport.time.substituted} · ${complexityReport.time.measuredOps} steps` : 'Not counted',
+      label: 'Genotypes',
+      value: distributionValue(probabilities?.genotype, 'genotypes'),
+      section: 'distribution',
+    },
+    { label: 'Dominant · recessive · sex-linked', value: loci.length ? `${modes.dominant} dominant · ${modes.recessive} recessive · ${modes.sexLinked} sex-linked` : 'Not calculated', section: 'inheritance' },
+    { label: 'Genes used', value: loci.length ? `${modes.total} genes · ${summary.totalOutcomes ?? '—'} joint genotypes` : 'No per-gene trace stored', section: 'inheritance' },
+    { label: 'Method', value: method, section: 'flow' },
+    { label: 'Desirable traits', value: factorLine(factorByKey.inheritance_information), section: 'gica' },
+    { label: 'Recessive risk', value: factorLine(factorByKey.genetic_risk, gica?.risk?.level ? `Risk level ${gica.risk.level}` : null), section: 'gica' },
+    { label: 'Genetic diversity', value: factorLine(factorByKey.genetic_diversity, gica?.diversity?.level ? `Diversity ${gica.diversity.level}` : null), section: 'gica' },
+    { label: 'Mutation load', value: factorLine(factorByKey.mutation_compatibility), section: 'gica' },
+    { label: 'Species fit', value: factorLine(factorByKey.species_compatibility), section: 'gica' },
+    { label: 'Breeding limits', value: factorLine(factorByKey.breeding_constraints), section: 'gica' },
+    {
+      label: 'Time this run used',
+      value: complexityReport ? `${complexityReport.time.bound} · ${complexityReport.time.measuredOps} steps` : 'Not counted',
       section: 'complexity',
     },
     {
-      label: 'Space complexity',
-      value: complexityReport ? `${complexityReport.space.bound} · ${complexityReport.space.substituted} · ${complexityReport.space.measuredUnits} stored units` : 'Not counted',
+      label: 'Space this run used',
+      value: complexityReport ? `${complexityReport.space.bound} · ${complexityReport.space.measuredUnits} stored units` : 'Not counted',
       section: 'complexity',
     },
   ]
@@ -215,112 +164,24 @@ export default function PanelistProcessBrief({
   return (
     <section className="panel-brief" id="process-brief" aria-labelledby="panel-brief-title">
       <header className="panel-brief__mast">
-        <p className="panel-brief__kicker">First view after breeding completes</p>
-        <h2 id="panel-brief-title">Why this result exists, and how it was computed</h2>
-        <p>
-          Panelists review the process before any chick picture. RBGIA computes inheritance from Mendelian and chromosomal rules.
-          GICA weights that evidence into one score. The clutch forecast uses the score and never rewrites the Punnett squares.
-          Identical stored parents always produce this same board.
+        <p className="panel-brief__kicker">{parent1} × {parent2}</p>
+        <h2 id="panel-brief-title">Pair result</h2>
+        <p className="panel-brief__score">
+          <strong>{scoreText}</strong>
+          <span>{status}</span>
         </p>
+        <p>{recommendation || 'Open the score proof to read the recommendation for this pair.'}</p>
+        {onDownload ? (
+          <button type="button" className="thesis-report-btn" onClick={onDownload}>
+            Generate Report
+          </button>
+        ) : null}
       </header>
 
-      <div className="panel-brief__roles" aria-label="What each panelist checks on this board">
-        <article>
-          <h3>Breeders</h3>
-          <p>Predicted offspring traits, recessive risk, diversity, and whether the score matches those outcomes.</p>
-        </article>
-        <article>
-          <h3>Hobbyists</h3>
-          <p>The odds in plain language, the recommendation, and the clutch estimate — without a hidden formula.</p>
-        </article>
-        <article>
-          <h3>IT experts</h3>
-          <p>Determinism, the Punnett trace, the weight formula, and the time and space this run actually used.</p>
-        </article>
-      </div>
-
-      <ol className="panel-brief__phases">
-        {phases.map((phase) => (
-          <li key={phase.id}>
-            <p className="panel-brief__phase-n">{phase.n}</p>
-            <h3>{phase.title}</h3>
-            <p><span>Why. </span>{phase.why}</p>
-            <p><span>How. </span>{phase.how}</p>
-            <button type="button" onClick={() => onOpen?.(phase.proof)}>
-              {phase.proofLabel}
-            </button>
-          </li>
-        ))}
-      </ol>
-
-      <div className="panel-brief__engines">
-        <article aria-labelledby="panel-rbgia-title">
-          <p className="panel-brief__engine-kicker">Computation · RBGIA</p>
-          <h3 id="panel-rbgia-title">Rule-Based Genetic Inheritance Algorithm</h3>
-          <p>
-            {parent1} × {parent2}. Method {method}. {deterministic ? 'This run is deterministic: the same input fills the same boxes.' : 'Determinism was not confirmed on this payload.'}
-          </p>
-          <dl>
-            <div>
-              <dt>Genes walked</dt>
-              <dd>{modes.total || '—'}</dd>
-            </div>
-            <div>
-              <dt>Joint genotypes</dt>
-              <dd>{summary.totalOutcomes ?? '—'}</dd>
-            </div>
-            <div>
-              <dt>Visible looks</dt>
-              <dd>{summary.appearanceCount ?? '—'}</dd>
-            </div>
-            <div>
-              <dt>Sex-linked genes</dt>
-              <dd>{modes.sexLinked}</dd>
-            </div>
-          </dl>
-          <p className="panel-brief__engine-note">
-            {modes.dominant} dominant, {modes.recessive} recessive, {modes.sexLinked} sex-linked.
-            GICA may read these odds. It does not change them.
-          </p>
-        </article>
-
-        <article aria-labelledby="panel-gica-title">
-          <p className="panel-brief__engine-kicker">Weight scoring · GICA</p>
-          <h3 id="panel-gica-title">Genetic Inheritance Compatibility Algorithm</h3>
-          <p className="panel-brief__formula" aria-label="GICA weighted score">
-            Score = Σ (weight × raw). Weight = factor maximum ÷ 100. Raw = points ÷ maximum × 100.
-          </p>
-          <p className="panel-brief__score">
-            <strong>{scoreText}</strong>
-            <span>{status}</span>
-          </p>
-          {factors.length ? (
-            <ul className="panel-brief__weights">
-              {factors.map((factor) => (
-                <li key={factor.key}>
-                  <span>{factor.name}</span>
-                  <span>{factor.points} / {factor.max}</span>
-                  <span>{Math.round(factor.weightPercent)}%</span>
-                  <span className="panel-brief__bar" aria-hidden="true">
-                    <i style={{ width: `${Math.max(0, Math.min(100, factor.raw))}%` }} />
-                  </span>
-                </li>
-              ))}
-            </ul>
-          ) : (
-            <p>No weighted factor breakdown is stored for this result. The score above is the stored engine value.</p>
-          )}
-          <button type="button" onClick={() => onOpen?.('final-output')}>
-            Open the score and why
-          </button>
-        </article>
-      </div>
-
       <div className="panel-brief__ledger-wrap">
-        <h3>Everything this completed breeding must show</h3>
+        <h3>Read in this order</h3>
         <p>
-          These are the study outputs for this pair: genotype and phenotype distributions, mutations and splits, the numerical score, the weighted factors, the clutch, the hatchlings, and the work the algorithm did.
-          Chick pictures are on the second tab. They do not change these values.
+          The score comes first, then the chicks, then the nest. Proof opens that step in a window. Eggs and chicks are on the next tab.
         </p>
         <dl className="panel-brief__ledger">
           {ledger.map((row) => (
@@ -338,8 +199,7 @@ export default function PanelistProcessBrief({
       </div>
 
       <p className="panel-brief__disclaimer">
-        {pair?.recommendation || gica?.recommendation || 'The recommendation is stored with the score in the proof below.'}
-        {' '}This board is a decision-support estimate. It does not guarantee breeding success, a specific nest, or exact offspring traits.
+        This is an estimate from the stored pair. It does not guarantee a nest, a hatch, or the exact chicks you will see.
       </p>
     </section>
   )

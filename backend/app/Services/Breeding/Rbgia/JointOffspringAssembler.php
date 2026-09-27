@@ -71,6 +71,7 @@ class JointOffspringAssembler
                     if (! $isChromosomal) {
                         $genotypeParts[] = ($outcome['name'] ?? 'locus').':'.$row['genotype'];
                     }
+                    $gamete = $row['gamete_combinations'][0] ?? [];
                     $next[] = [
                         'probability' => $probability,
                         'sex' => $sex,
@@ -85,6 +86,9 @@ class JointOffspringAssembler
                                 'expression' => $row['expression'] ?? null,
                                 'fraction' => $row['fraction'] ?? null,
                                 'probability' => $row['probability'] ?? null,
+                                'from_cock' => $gamete['from_cock'] ?? $gamete['from_cock_Z'] ?? null,
+                                'from_hen' => $gamete['from_hen'] ?? $gamete['from_hen_Z'] ?? null,
+                                'allele_phenotypes' => $outcome['allele_phenotypes'] ?? [],
                             ],
                         ],
                         'genotype_parts' => $genotypeParts,

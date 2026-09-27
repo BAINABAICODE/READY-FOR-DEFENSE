@@ -195,6 +195,7 @@ class PhenotypeTranslator
                 'stored_record_id' => null,
                 'loci' => $row['loci'] ?? [],
                 'inheritance_paths' => $paths,
+                'passed_from_parents' => $row['passed_from_parents'] ?? [],
                 'image' => null,
                 'visualization_payload' => null,
             ];

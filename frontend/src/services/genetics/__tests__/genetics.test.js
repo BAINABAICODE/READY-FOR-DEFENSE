@@ -70,7 +70,7 @@ describe('Test 4 — sex-linked Z+/Zino cock × Zino/W hen (avian ZW)', () => {
   it('classifies carrier male, visual male, non-visual female, visual female correctly', () => {
     const mode = resolveInheritanceMode('Sex-linked recessive')
     expect(classifyExpression(byKey['cock:ino+/ino'].genotype, mode)).toBe('carrier_split')
-    expect(classifyExpression(byKey['cock:ino/ino'].genotype, mode)).toBe('visual_homozygous')
+    expect(classifyExpression(byKey['cock:ino/ino'].genotype, mode)).toBe('visual')
     expect(classifyExpression(byKey['hen:ino+/W'].genotype, mode)).toBe('hemizygous_wild')
     expect(classifyExpression(byKey['hen:ino/W'].genotype, mode)).toBe('visual_hemizygous')
   })
@@ -139,6 +139,39 @@ describe('Test 6 — missing genotype is never invented', () => {
       result: { result_presentation: { probabilities: { unavailable: [{ category: 'base_color', name: 'Base color', reason: 'No stored genotype.' }] } } },
     })
     expect(findings.find((f) => f.code === 'missing_genotype').message).toBe('No stored genotype.')
+  })
+})
+
+describe('Dosage and allelic-compound expression', () => {
+  it('reads intermediate dominant as single factor, not complete dominance', () => {
+    const mode = resolveInheritanceMode('Intermediate dominant')
+    expect(mode.incomplete).toBe(true)
+    expect(mode.dominant).toBe(false)
+    expect(classifyExpression('D+/D+', mode)).toBe('non_carrier')
+    expect(classifyExpression('D+/D', mode)).toBe('visual_single_factor')
+    expect(classifyExpression('D/D', mode)).toBe('visual_double')
+  })
+
+  it('keeps complete dominance on heterozygous and homozygous classes', () => {
+    const mode = resolveInheritanceMode('Autosomal dominant')
+    expect(classifyExpression('Pi+/Pi', mode)).toBe('visual_heterozygous')
+    expect(classifyExpression('Pi/Pi', mode)).toBe('visual_homozygous')
+    expect(classifyExpression('Pi+/Pi+', mode)).toBe('non_carrier')
+  })
+
+  it('treats two different recessive alleles as a visual compound', () => {
+    const mode = resolveInheritanceMode('Autosomal recessive')
+    expect(classifyExpression('bl+/blaq', mode)).toBe('carrier_split')
+    expect(classifyExpression('blaq/blaq', mode)).toBe('visual')
+    expect(classifyExpression('blaq/bltq', mode)).toBe('visual_compound')
+  })
+
+  it('marks a single-factor sex-linked incomplete cock as visual', () => {
+    const mode = resolveInheritanceMode('Sex-linked incomplete dominant')
+    expect(classifyExpression('Grw+/Grw', mode)).toBe('visual_single_factor')
+    expect(classifyExpression('Grw/Grw', mode)).toBe('visual_double')
+    expect(classifyExpression('Grw/W', mode)).toBe('visual_hemizygous')
+    expect(classifyExpression('Grw+/W', mode)).toBe('hemizygous_wild')
   })
 })
 

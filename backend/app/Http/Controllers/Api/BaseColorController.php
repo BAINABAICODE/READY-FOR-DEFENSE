@@ -6,6 +6,7 @@ use App\Http\Controllers\Controller;
 use App\Models\BaseColor;
 use App\Models\LovebirdSpecies;
 use App\Support\BaseColorCatalog;
+use App\Support\CatalogResponseCache;
 use Illuminate\Http\JsonResponse;
 use Illuminate\Http\Request;
 
@@ -39,7 +40,12 @@ class BaseColorController extends Controller
             $query->where('verification_status', $request->string('verification_status'));
         }
 
-        $items = $query->get()->map(fn (BaseColor $color) => $this->transform($color));
+        $items = CatalogResponseCache::remember($request, 'base-colors', function () use ($query) {
+            return $query->get()
+                ->map(fn (BaseColor $color) => $this->transform($color))
+                ->values()
+                ->all();
+        });
 
         return response()->json(['data' => $items]);
     }

@@ -6,6 +6,7 @@ import { mapPhenotype } from './phenotypeMapper'
 import { resolveInheritanceMode } from './inheritanceResolver'
 import { chromosomeMapping, classifySexLinkedOutcome } from './sexLinkedResolver'
 import { DEFAULT_CLUTCH_SIZES } from './constants'
+import { homozygousFromSplitCarriers } from './splitCarrierHomozygous'
 
 /**
  * Orchestrates the F1–F5 trace for every locus the backend RBGIA engine processed and
@@ -42,7 +43,7 @@ export function buildLocusTrace(outcome, roles = {}) {
   const outcomes = aggregated.map((row) => ({
     ...row,
     phenotype: mapPhenotype(row.genotype, row.sex, mode, stored),
-    sexLinkedClass: sexLinked ? classifySexLinkedOutcome(row.sex, row.genotype) : null,
+    sexLinkedClass: sexLinked ? classifySexLinkedOutcome(row.sex, row.genotype, mode) : null,
   }))
 
   const verification = compareWithStored(outcomes, stored)
@@ -74,6 +75,13 @@ export function buildLocusTrace(outcome, roles = {}) {
     fixed,
     chromosomes: sexLinked ? chromosomeMapping(cockAlleles, henAlleles) : null,
     probabilitySum: sumProbabilities(outcomes),
+    carrierHomozygous: outcome?.carrier_homozygous || homozygousFromSplitCarriers({
+      cockAlleles,
+      henAlleles,
+      sexLinked,
+      inheritanceType: outcome?.inheritance_type,
+      results: stored,
+    }),
   }
 }
 
@@ -178,6 +186,7 @@ export function buildJointOutcomes(result = {}) {
         ? `${loci.map((l) => l.fraction || fmt(l.probability)).join(' × ')}${normalised ? ` ÷ ${fmt(productSum)} (Σ of all sex-compatible products)` : ''} = ${row.fraction || fmt(probability)}`
         : null,
       inheritanceClasses: row.inheritance_classes || null,
+      passedFromParents: row.passed_from_parents || row.inherited_from?.passed || [],
       egg,
       imageUrl: egg?.image?.image_url || egg?.image_url || null,
       eggNumber: egg?.egg_number ?? null,

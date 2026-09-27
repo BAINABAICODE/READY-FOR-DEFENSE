@@ -1,5 +1,5 @@
 import { GenotypeBadge, ModeBadge, ProbabilityBar, SexBadge } from '../shared/primitives'
-import { percentText } from '../shared/format'
+import { breedingOutcome, outcomeBaseColor, outcomeSplit, outcomeVisual, percentText } from '../shared/format'
 import { resolveInheritanceMode } from '../../../services/genetics'
 import PhenotypeMap from '../inheritance/PhenotypeMap'
 
@@ -29,11 +29,35 @@ function inheritanceSummary(row) {
   return [...modes.values()]
 }
 
+function passLabel(expression) {
+  const value = String(expression || '')
+  if (value.startsWith('visual')) return 'Visual'
+  if (value === 'carrier_split') return 'Split / hidden'
+  if (value === 'non_carrier' || value === 'hemizygous_wild') return 'Not carried'
+  if (value === 'female') return 'Hen (ZW)'
+  if (value === 'male') return 'Cock (ZZ)'
+  return value ? value.replace(/_/g, ' ') : 'Stored result'
+}
+
+function PassedFromParents({ rows }) {
+  const list = rows || []
+  if (!list.length) return <span className="gx-muted">Alleles passed by each parent were not stored for this outcome.</span>
+  return (
+    <ul className="gx-passed">
+      {list.map((item) => (
+        <li key={`${item.locus}-${item.chick_genotype}`}>
+          <span className="gx-passed__locus">{item.locus}</span>
+          <span>cock <code>{item.from_cock || '—'}</code> · hen <code>{item.from_hen || '—'}</code></span>
+          <strong>{passLabel(item.expression)}</strong>
+        </li>
+      ))}
+    </ul>
+  )
+}
+
 function geneticExplanation(row) {
-  const visual = row.visualMutations.length ? `${row.visualMutations.join(' and ')} expressed visually` : 'no visual mutation expressed'
-  const splits = row.splitHiddenGenes.length ? `; carries ${row.splitHiddenGenes.join(', ')} as hidden split allele${row.splitHiddenGenes.length > 1 ? 's' : ''}` : ''
-  const dark = row.darkFactor && row.darkFactor !== 'none' ? ` with ${row.darkFactor} dark factor` : ''
-  return `${row.sexLabel || 'Offspring'} with ${row.baseColor || 'stored base colour'}${dark}; ${visual}${splits}. Each locus was combined independently, so the joint probability is the product of the per-locus Punnett probabilities.`
+  const dark = row.darkFactor && row.darkFactor !== 'none' ? ` Dark factor ${row.darkFactor}.` : ''
+  return `${breedingOutcome(row)}.${dark} That is the chick expected from the alleles these parents pass. Hidden genes are splits and are not seen on the bird.`
 }
 
 export default function OffspringOutcomeCard({ row, rank }) {
@@ -42,6 +66,7 @@ export default function OffspringOutcomeCard({ row, rank }) {
     <article className="gx-card" aria-labelledby={`outcome-${row.id}-title`}>
       <header className="gx-card__head">
         <p className="gx-card__eyebrow" id={`outcome-${row.id}-title`}>Outcome #{rank}</p>
+        <p className="gx-card__title">{breedingOutcome(row)}</p>
         <SexBadge sex={row.sex} label={row.sexLabel} />
       </header>
       {row.imageUrl ? (
@@ -52,12 +77,16 @@ export default function OffspringOutcomeCard({ row, rank }) {
       ) : null}
       <dl className="gx-card__facts">
         <div>
-          <dt>Visual result</dt>
-          <dd><strong>{row.baseColor || 'Not stored'}</strong>{row.darkFactor && row.darkFactor !== 'none' ? ` · ${row.darkFactor}` : ''}{row.visualMutations.length ? ` · ${row.visualMutations.join(', ')}` : ''}</dd>
+          <dt>Base color</dt>
+          <dd><strong>{outcomeBaseColor(row)}</strong>{row.darkFactor && row.darkFactor !== 'none' ? ` · ${row.darkFactor}` : ''}</dd>
+        </div>
+        <div>
+          <dt>Visual mutation</dt>
+          <dd>{outcomeVisual(row)}</dd>
         </div>
         <div>
           <dt>Split / hidden</dt>
-          <dd>{row.splitHiddenGenes.length ? row.splitHiddenGenes.join(', ') : <span className="gx-muted">None</span>}</dd>
+          <dd>{outcomeSplit(row)}</dd>
         </div>
         <div>
           <dt>Genotype</dt>
@@ -78,6 +107,13 @@ export default function OffspringOutcomeCard({ row, rank }) {
         <div>
           <dt>Formula trace</dt>
           <dd>{row.formula ? <code className="gx-code">F5: {row.formula}</code> : <code className="gx-code">{row.fraction || percentText(row.probability)}</code>}{row.productMatches === false ? <span className="gx-alert is-bad"> product ≠ stored</span> : null}</dd>
+        </div>
+        <div>
+          <dt>Passed from parents</dt>
+          <dd>
+            <PassedFromParents rows={row.passedFromParents || row.passed_from_parents} />
+            <p className="gx-note">Each parent passes one allele. Separate genes assort independently. Sex-linked alleles travel on the Z chromosome.</p>
+          </dd>
         </div>
         <div>
           <dt>Genetic explanation</dt>

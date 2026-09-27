@@ -2,6 +2,7 @@
 
 namespace App\Support;
 
+use App\Models\BaseColor;
 use App\Models\Bird;
 use App\Models\SplitGene;
 use Illuminate\Support\Collection;
@@ -24,17 +25,27 @@ class SplitGeneCatalog
             ->get();
     }
 
-    /**
-     * Shared carrier locus only when the source category names a locus.
-     * A split stores one hidden mutant allele with the wild-type allele.
-     */
-    public static function carrierLocus(?string $geneticCategory): ?string
+    public static function carrierLocus(?string $geneticCategory, ?string $mutantAllele = null): ?string
     {
-        if ($geneticCategory !== null && preg_match('/locus/i', $geneticCategory) === 1) {
-            return $geneticCategory;
+        return GeneticLocus::fromSeriesAndAllele($geneticCategory, $mutantAllele);
+    }
+
+    public static function locusKey(object $gene): ?string
+    {
+        return GeneticLocus::fromSeriesAndAllele(
+            $gene->genetic_category ?? null,
+            $gene->mutant_allele ?? $gene->genetic_symbol ?? null,
+        );
+    }
+
+    public static function visualName(object $gene): string
+    {
+        $phenotype = trim(explode(',', (string) ($gene->phenotype_when_visual ?? ''))[0]);
+        if ($phenotype !== '') {
+            return $phenotype;
         }
 
-        return null;
+        return trim((string) preg_replace('/^split\s+/i', '', (string) ($gene->name ?? '')));
     }
 
     public static function sexCanCarry(SplitGene $gene, ?string $sex): bool
@@ -52,9 +63,15 @@ class SplitGeneCatalog
 
     /**
      * @param  list<int>  $ids
+     * @param  Collection<int, object>|null  $visualMutations
      */
-    public static function incompatibleMessage(array $ids, int $speciesId, ?string $sex = null): ?string
-    {
+    public static function incompatibleMessage(
+        array $ids,
+        int $speciesId,
+        ?string $sex = null,
+        ?BaseColor $color = null,
+        ?Collection $visualMutations = null,
+    ): ?string {
         $ids = array_values(array_unique(array_map('intval', $ids)));
         if ($ids === []) {
             return null;
@@ -65,26 +82,70 @@ class SplitGeneCatalog
             return 'Split/hidden genes must belong to the selected species.';
         }
 
-        $locusSeen = [];
-        foreach ($genes as $gene) {
+        return self::selectionMessage($genes, $sex, $color, $visualMutations);
+    }
+
+    /**
+     * A split is the hidden heterozygous form. One locus can hide one mutant
+     * allele. A visual mutation or a mutant blue-series color already occupies
+     * that gene, so it cannot also be stored as a split.
+     *
+     * @param  Collection<int, SplitGene>  $genes
+     * @param  Collection<int, object>|null  $visualMutations
+     */
+    public static function selectionMessage(
+        Collection $genes,
+        ?string $sex = null,
+        ?BaseColor $color = null,
+        ?Collection $visualMutations = null,
+    ): ?string {
+        $selected = $genes->values();
+        $visuals = $visualMutations ?? collect();
+
+        foreach ($selected as $gene) {
             if (! self::sexCanCarry($gene, $sex)) {
                 if ($sex === Bird::SEX_HEN) {
-                    return $gene->name.' cannot be stored as a hidden split for a hen. The dataset records this as a sex-linked gene that is visual on the single Z.';
+                    return $gene->name.' cannot be stored as a hidden split for a hen. A hen with this sex-linked gene on her single Z is visual, not split.';
                 }
 
                 return $gene->name.' cannot be stored as a hidden split for a cock.';
             }
+        }
 
-            $locus = self::carrierLocus($gene->genetic_category);
+        $locusSeen = [];
+        foreach ($selected as $gene) {
+            $locus = self::locusKey($gene);
             if ($locus === null) {
                 continue;
             }
 
             if (isset($locusSeen[$locus])) {
-                return $gene->name.' cannot be combined with '.$locusSeen[$locus].'. The dataset records these as alleles of the same locus, not two splits.';
+                return $gene->name.' cannot be combined with '.$locusSeen[$locus].'. A split keeps one wild-type copy of this gene, so only one hidden allele can be stored.';
             }
 
             $locusSeen[$locus] = $gene->name;
+        }
+
+        foreach ($selected as $gene) {
+            $locus = self::locusKey($gene);
+            if (GeneticLocus::isBlLocus($locus) && ! GeneticLocus::canHideBlSplit($color?->genetic_code)) {
+                $colorName = $color?->name ?: 'This base color';
+
+                return $gene->name.' can only stay hidden on a green-series bird. '.$colorName.' already uses both copies of the blue gene.';
+            }
+
+            if ($locus === null) {
+                continue;
+            }
+
+            foreach ($visuals as $mutation) {
+                $visualLocus = VisualMutationCatalog::locusKey($mutation->series ?? null, $mutation->allele ?? null);
+                if ($visualLocus === $locus) {
+                    $visualName = $mutation->name ?? 'This mutation';
+
+                    return $visualName.' is already visual on this bird, so '.$gene->name.' cannot also be stored as a hidden split. A split is the hidden heterozygous form.';
+                }
+            }
         }
 
         return null;
@@ -98,6 +159,8 @@ class SplitGeneCatalog
         if (! $gene) {
             return null;
         }
+
+        $locusKey = self::locusKey($gene);
 
         return [
             'id' => $gene->id,
@@ -123,7 +186,8 @@ class SplitGeneCatalog
             'verification_status' => $gene->verification_status,
             'scientific_source' => $gene->scientific_source,
             'computable' => $gene->computable,
-            'carrier_locus' => self::carrierLocus($gene->genetic_category),
+            'carrier_locus' => $locusKey,
+            'locus_key' => $locusKey,
         ];
     }
 }

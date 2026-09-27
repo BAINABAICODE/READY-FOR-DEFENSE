@@ -6,7 +6,7 @@ export default function PredictionBasis({ confidence, summary }) {
   return (
     <div className="gx-basis">
       <dl className="gx-basis__list">
-        <div><dt>Deterministic inheritance rules</dt><dd><CheckMark ok labels={{ ok: 'Rule-based (no machine learning, no randomness)' }} /></dd></div>
+        <div><dt>Deterministic inheritance rules</dt><dd><CheckMark ok labels={{ ok: 'Same parents, same result' }} /></dd></div>
         <div><dt>Complete parental genotype</dt><dd><CheckMark ok={genotype === 'complete'} unknown={genotype === 'insufficient'} labels={{ ok: 'Complete for all calculated loci', no: 'Partial', unknown: 'Insufficient data' }} /></dd></div>
         <div><dt>Grandparent records</dt><dd><CheckMark ok={pedigree === 'provided'} unknown={pedigree === 'not_provided'} labels={{ ok: 'Provided for both parents', no: 'Provided for one parent', unknown: 'Not provided' }} /></dd></div>
         <div><dt>Mutation database coverage</dt><dd><CheckMark ok={confidence.coverage >= 1} labels={{ ok: `${confidence.lociCalculated} / ${confidence.lociTotal} loci calculated`, no: `${confidence.lociCalculated} / ${confidence.lociTotal} loci calculated (${confidence.coveragePercent}%)` }} /></dd></div>

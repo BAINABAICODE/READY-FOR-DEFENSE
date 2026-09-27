@@ -1,9 +1,17 @@
 import { useEffect, useId, useLayoutEffect, useMemo, useRef, useState } from 'react'
 import { createPortal } from 'react-dom'
 import api from '../../api/client'
+import { getBirds, getCatalog } from '../../api/catalogs'
 import { getSpeciesFormPreview } from '../../assets/species-form/index.js'
 import SearchableSelect from '../BirdsManagement/SearchableSelect.jsx'
 import { keepApplicableMutationIds, visualBlockReason } from '../../services/genetics/mutationGroundApplicability.js'
+import { keepCombinableMutationIds, visualCombinationBlock } from '../../services/genetics/visualMutationCombinations.js'
+import {
+  baseColorBlock,
+  keepCombinableGeneIds,
+  splitGeneBlock,
+  visualSplitBlock,
+} from '../../services/genetics/splitGeneCombinations.js'
 import './BreedingWorkflow.css'
 
 const STATUS_LABELS = {
@@ -14,13 +22,18 @@ const STATUS_LABELS = {
   error: 'Error',
 }
 
+const MIN_AGE_MONTHS = 12
 const MAX_AGE_MONTHS = 180
-const AGE_MONTH_OPTIONS = Array.from({ length: MAX_AGE_MONTHS + 1 }, (_, months) => months)
+const AGE_MONTH_OPTIONS = Array.from(
+  { length: MAX_AGE_MONTHS - MIN_AGE_MONTHS + 1 },
+  (_, index) => MIN_AGE_MONTHS + index,
+)
 
 function ageMonthOptions(current) {
+  if (current === '' || current === null || current === undefined) return AGE_MONTH_OPTIONS
   const extra = Number(current)
-  if (Number.isFinite(extra) && extra > MAX_AGE_MONTHS) {
-    return [...AGE_MONTH_OPTIONS, extra]
+  if (Number.isFinite(extra) && extra >= 0 && extra <= 600 && !AGE_MONTH_OPTIONS.includes(extra)) {
+    return [...AGE_MONTH_OPTIONS, extra].sort((left, right) => left - right)
   }
   return AGE_MONTH_OPTIONS
 }
@@ -29,9 +42,9 @@ const HINTS = {
   birdId: 'Type a unique name or code for this parent, such as ABC123. The two parents cannot share the same Bird ID.',
   species: 'Choose the lovebird species first. Available colors, mutations, genes, and pairing rules all come from this choice.',
   sex: 'Choose Cock (Male) or Hen (Female). A pair needs one of each, and sex-linked genes depend on this field.',
-  age: 'Select age in months. A breeding bird should be at least 10 to 12 months old. Age is used for breeding-safety checks, not Mendelian math.',
+  age: 'Select age in months. Choices start at 12 months. Age is used for breeding-safety checks, not Mendelian math.',
   baseColor: 'Pick the documented ground color. RBGIA uses this to calculate how color is inherited.',
-  visual: 'Pick mutations the bird actually shows. A face mutation stays disabled on blue, and Violet stays disabled with Ino.',
+  visual: 'Pick one mutation, or a combination this species dataset names. Any other mix stays disabled and cannot be analyzed.',
   split: 'Pick hidden or split genes the bird carries but may not show. These can still appear in chicks.',
   grandparents: 'Optional. Add grandparents only if you have them. They help flag close relationships and extra genetic context.',
   select: 'Load a saved bird from Birds Management. The form fills automatically so you do not retype the profile.',
@@ -44,9 +57,9 @@ const ASSISTS = {
   birdId: 'Unique label for this parent',
   species: 'Required first — unlocks genetics',
   sex: 'One cock and one hen in the pair',
-  age: 'Should be at least 10 to 12 months old',
+  age: 'Starts at 12 months',
   baseColor: 'Optional, but needed for a full forecast',
-  visual: 'Optional. Only what the bird shows',
+  visual: 'Optional. Only a named dataset combination',
   split: 'Optional. Hidden genes the bird carries',
 }
 
@@ -295,6 +308,39 @@ function names(items) {
   return list.length ? list.join(', ') : 'None recorded'
 }
 
+const BASE_COLOR_SWATCHES = [
+  ['olive aqua', '#66733a'],
+  ['dark aqua', '#1b6b66'],
+  ['dark green', '#1b4d28'],
+  ['seagreen', '#1c7a5c'],
+  ['turquoise df', '#16485c'],
+  ['turquoise sf', '#2a7590'],
+  ['cobalt blue', '#1c3d86'],
+  ['mauve blue', '#5c3d68'],
+  ['cobalt', '#274892'],
+  ['mauve', '#6a466e'],
+  ['teal df', '#143e3c'],
+  ['teal sf', '#245e5a'],
+  ['teal', '#1a8078'],
+  ['blue df', '#142c52'],
+  ['blue sf', '#243f78'],
+  ['blue2', '#3a68ae'],
+  ['blue1', '#4678c2'],
+  ['olive', '#6a622c'],
+  ['turquoise', '#35b0c0'],
+  ['aqua', '#49c4b4'],
+  ['blue', '#3a6cb0'],
+  ['green', '#2f8f34'],
+]
+
+function swatchForBaseColor(color) {
+  const name = String(color?.name || '').toLowerCase()
+  const series = String(color?.series || '').toLowerCase()
+  const match = BASE_COLOR_SWATCHES.find(([key]) => name.includes(key))
+    || BASE_COLOR_SWATCHES.find(([key]) => series.includes(key))
+  return match ? match[1] : '#7d8478'
+}
+
 function speciesLabel(bird) {
   if (!bird?.species) return '—'
   return bird.species.label || bird.species.common_name || '—'
@@ -344,6 +390,13 @@ function optionSpeciesLabel(option) {
 function forSpecies(items, speciesId) {
   if (!speciesId) return []
   return items.filter((item) => String(item.species_id) === String(speciesId))
+}
+
+function colorForSpeciesDefault(baseColors, speciesId, currentId) {
+  const colors = forSpecies(baseColors, speciesId)
+  const current = colors.find((color) => String(color.id) === String(currentId))
+  if (current) return current
+  return colors.find((color) => color.name === 'Green') || null
 }
 
 function genesForParent(splitGenes, speciesId, sex) {
@@ -440,12 +493,6 @@ function parentStarted(parent) {
   )
 }
 
-function isDocumentedCombination(left, right) {
-  const leftNames = left.combination_names || []
-  const rightNames = right.combination_names || []
-  return leftNames.includes(right.name) || rightNames.includes(left.name)
-}
-
 function selectedById(items, ids) {
   const wanted = new Set((ids || []).map((id) => String(id)))
   return (items || []).filter((item) => wanted.has(String(item.id)))
@@ -466,8 +513,17 @@ function geneticIssues(parent, catalogs) {
     if (!color) {
       fields.base_color_id = 'This base color is not documented for the selected species.'
       messages.push(fields.base_color_id)
-    } else if (needsVerification(color)) {
-      warnings.push('One or more selected genetic traits have not been scientifically verified.')
+    } else {
+      const splitBlock = baseColorBlock(
+        color,
+        selectedById(genesForParent(catalogs.splitGenes, parent.species_id, parent.sex), parent.split_gene_ids),
+      )
+      if (splitBlock) {
+        fields.base_color_id = splitBlock
+        messages.push(splitBlock)
+      } else if (needsVerification(color)) {
+        warnings.push('One or more selected genetic traits have not been scientifically verified.')
+      }
     }
   } else if (String(parent.bird_id || '').trim() && parent.sex && !ageError(parent.age_months)) {
     warnings.push('Genetic information is incomplete. Missing: base color.')
@@ -489,18 +545,17 @@ function geneticIssues(parent, catalogs) {
         fields.visual_mutation_ids = blocked
         messages.push(blocked)
       }
-      const conflict = blocked ? null : selected.find((candidate, index) =>
-        selected.slice(index + 1).some((other) => {
-          if (candidate.dosage_key && other.dosage_key && candidate.dosage_key === other.dosage_key) return true
-          if (candidate.locus_key && other.locus_key && candidate.locus_key === other.locus_key) {
-            return !isDocumentedCombination(candidate, other)
-          }
-          return false
-        }),
+      const selectedSplits = selectedById(
+        genesForParent(catalogs.splitGenes, parent.species_id, parent.sex),
+        parent.split_gene_ids,
       )
+      const conflict = blocked
+        ? ''
+        : selected.map((candidate, index) => visualCombinationBlock(candidate, selected.slice(index + 1), parent.sex)).find(Boolean)
+          || selected.map((candidate) => visualSplitBlock(candidate, selectedSplits)).find(Boolean)
       if (conflict) {
-        fields.visual_mutation_ids = 'This mutation combination has not been validated for this species and cannot be used for a definitive prediction.'
-        messages.push(fields.visual_mutation_ids)
+        fields.visual_mutation_ids = conflict
+        messages.push(conflict)
       } else if (selected.some(needsVerification)) {
         warnings.push('One or more selected genetic traits have not been scientifically verified.')
       }
@@ -517,16 +572,25 @@ function geneticIssues(parent, catalogs) {
         : 'Split/hidden genes must belong to the selected species.'
       messages.push(fields.split_gene_ids)
     } else {
-      const seen = new Map()
-      const sameLocus = selected.find((gene) => {
-        if (!gene.carrier_locus) return false
-        if (seen.has(gene.carrier_locus)) return true
-        seen.set(gene.carrier_locus, gene.name)
-        return false
-      })
-      if (sameLocus) {
-        fields.split_gene_ids = 'The selected split genes are alleles of the same locus and cannot both be stored.'
-        messages.push(fields.split_gene_ids)
+      const color = parent.base_color_id
+        ? selectedById(forSpecies(catalogs.baseColors, parent.species_id), [parent.base_color_id])[0]
+        : null
+      const selectedVisuals = selectedById(
+        forSpecies(catalogs.visualMutations, parent.species_id),
+        parent.visual_mutation_ids,
+      )
+      const conflict = selected
+        .map((candidate, index) =>
+          splitGeneBlock(candidate, selected.slice(index + 1), {
+            sex: parent.sex,
+            baseColor: color,
+            visualMutations: selectedVisuals,
+          }),
+        )
+        .find(Boolean)
+      if (conflict) {
+        fields.split_gene_ids = conflict
+        messages.push(conflict)
       } else if (selected.some(needsVerification)) {
         warnings.push('One or more selected genetic traits have not been scientifically verified.')
       }
@@ -609,11 +673,11 @@ export default function BreedingWorkflow() {
   const loadCatalogs = () => {
     setLoadError('')
     Promise.all([
-      api.get('/birds'),
-      api.get('/lovebird-species'),
-      api.get('/base-colors'),
-      api.get('/visual-mutations'),
-      api.get('/split-genes'),
+      getBirds(),
+      getCatalog('/lovebird-species'),
+      getCatalog('/base-colors'),
+      getCatalog('/visual-mutations'),
+      getCatalog('/split-genes'),
     ])
       .then(([birdRes, speciesRes, colorRes, mutationRes, geneRes]) => {
         setBirds(birdRes.data?.data || [])
@@ -915,6 +979,17 @@ function ParentForm({
     onChange({ ...parent, [field]: value, ...extra }, field)
   }
 
+  const chooseBaseColor = (next) => {
+    const color = colors.find((item) => String(item.id) === String(next)) || null
+    const mutationIds = keepApplicableMutationIds(parent.visual_mutation_ids, mutations, color)
+    const geneIds = keepCombinableGeneIds(parent.split_gene_ids, genes, {
+      sex: parent.sex,
+      baseColor: color,
+      visualMutations: selectedById(mutations, mutationIds),
+    })
+    patch('base_color_id', next, { visual_mutation_ids: mutationIds, split_gene_ids: geneIds })
+  }
+
   return (
     <section className="breed-card">
       <div className="breed-card__head">
@@ -957,8 +1032,7 @@ function ParentForm({
           placeholder="Select species"
           searchPlaceholder="Search species…"
           onChange={(next) => {
-            const nextColors = forSpecies(baseColors, next)
-            const nextColor = nextColors.find((item) => String(item.id) === String(parent.base_color_id)) || null
+            const nextColor = colorForSpeciesDefault(baseColors, next, parent.base_color_id)
             const nextMutations = forSpecies(visualMutations, next)
             const mutationIds = keepApplicableMutationIds(
               (parent.visual_mutation_ids || []).filter((id) =>
@@ -967,13 +1041,19 @@ function ParentForm({
               nextMutations,
               nextColor,
             )
-            const geneIds = (parent.split_gene_ids || []).filter((id) =>
-              genesForParent(splitGenes, next, parent.sex).some((item) => String(item.id) === String(id)),
+            const geneIds = keepCombinableGeneIds(
+              parent.split_gene_ids,
+              genesForParent(splitGenes, next, parent.sex),
+              {
+                sex: parent.sex,
+                baseColor: nextColor,
+                visualMutations: selectedById(nextMutations, mutationIds),
+              },
             )
             onChange({
               ...parent,
               species_id: next,
-              base_color_id: nextColor ? parent.base_color_id : null,
+              base_color_id: nextColor?.id ?? null,
               visual_mutation_ids: mutationIds,
               split_gene_ids: geneIds,
             }, 'species_id')
@@ -985,10 +1065,22 @@ function ParentForm({
             value={parent.sex}
             onChange={(event) => {
               const sex = event.target.value
-              const geneIds = (parent.split_gene_ids || []).filter((id) =>
-                genesForParent(splitGenes, parent.species_id, sex).some((item) => String(item.id) === String(id)),
+              const mutationIds = keepCombinableMutationIds(
+                parent.visual_mutation_ids,
+                forSpecies(visualMutations, parent.species_id),
+                sex,
               )
-              onChange({ ...parent, sex, split_gene_ids: geneIds }, 'sex')
+              const color = colors.find((item) => String(item.id) === String(parent.base_color_id)) || null
+              const geneIds = keepCombinableGeneIds(
+                parent.split_gene_ids,
+                genesForParent(splitGenes, parent.species_id, sex),
+                {
+                  sex,
+                  baseColor: color,
+                  visualMutations: selectedById(forSpecies(visualMutations, parent.species_id), mutationIds),
+                },
+              )
+              onChange({ ...parent, sex, split_gene_ids: geneIds, visual_mutation_ids: mutationIds }, 'sex')
             }}
           >
             <option value="">Select sex</option>
@@ -1022,15 +1114,12 @@ function ParentForm({
           options={colors}
           value={parent.base_color_id}
           error={errors.base_color_id || ''}
-          allowEmpty
-          emptyLabel="None"
+          allowEmpty={false}
+          placeholder="Select base color"
           disabled={!parent.species_id}
           searchPlaceholder={parent.species_id ? 'Search base colors…' : 'Select a species first'}
-          onChange={(next) => {
-            const color = colors.find((item) => String(item.id) === String(next)) || null
-            const mutationIds = keepApplicableMutationIds(parent.visual_mutation_ids, mutations, color)
-            patch('base_color_id', next, { visual_mutation_ids: mutationIds })
-          }}
+          onChange={chooseBaseColor}
+          isOptionDisabled={(option) => baseColorBlock(option, selectedById(genes, parent.split_gene_ids))}
         />
 
         <SearchableSelect
@@ -1045,8 +1134,8 @@ function ParentForm({
           options={mutations}
           value={parent.visual_mutation_ids}
           error={errors.visual_mutation_ids || ''}
-          allowEmpty
-          emptyLabel="None"
+          allowEmpty={false}
+          placeholder="Select mutation"
           disabled={!parent.species_id}
           searchPlaceholder={parent.species_id ? 'Search mutations…' : 'Select a species first'}
           isOptionDisabled={(option) => {
@@ -1056,16 +1145,19 @@ function ParentForm({
             )
             const ground = visualBlockReason(color, option, selected)
             if (ground) return ground
-            return selected.some((current) => {
-              if (String(current.id) === String(option.id)) return false
-              if (option.dosage_key && current.dosage_key && option.dosage_key === current.dosage_key) return true
-              if (option.locus_key && current.locus_key && option.locus_key === current.locus_key) {
-                return !isDocumentedCombination(option, current)
-              }
-              return false
-            })
+            const combination = visualCombinationBlock(option, selected, parent.sex)
+            if (combination) return combination
+            return visualSplitBlock(option, selectedById(genes, parent.split_gene_ids))
           }}
-          onChange={(next) => patch('visual_mutation_ids', next)}
+          onChange={(next) => {
+            const color = colors.find((item) => String(item.id) === String(parent.base_color_id)) || null
+            const geneIds = keepCombinableGeneIds(parent.split_gene_ids, genes, {
+              sex: parent.sex,
+              baseColor: color,
+              visualMutations: selectedById(mutations, next),
+            })
+            patch('visual_mutation_ids', next, { split_gene_ids: geneIds })
+          }}
         />
 
         <SearchableSelect
@@ -1084,6 +1176,13 @@ function ParentForm({
           emptyLabel="None"
           disabled={!parent.species_id}
           searchPlaceholder={parent.species_id ? 'Search genes…' : 'Select a species first'}
+          isOptionDisabled={(option) =>
+            splitGeneBlock(option, selectedById(genes, parent.split_gene_ids), {
+              sex: parent.sex,
+              baseColor: colors.find((item) => String(item.id) === String(parent.base_color_id)) || null,
+              visualMutations: selectedById(mutations, parent.visual_mutation_ids),
+            })
+          }
           onChange={(next) => patch('split_gene_ids', next)}
         />
       </div>
@@ -1128,7 +1227,16 @@ function GrandparentFields({ title, value, speciesOptions, baseColors, visualMut
         allowEmpty
         emptyLabel="None"
         searchPlaceholder="Search species…"
-        onChange={(next) => onChange({ ...value, species_id: next, base_color_id: null, visual_mutation_ids: [], split_gene_id: null })}
+        onChange={(next) => {
+          const color = colorForSpeciesDefault(baseColors, next, value.base_color_id)
+          onChange({
+            ...value,
+            species_id: next,
+            base_color_id: color?.id ?? null,
+            visual_mutation_ids: [],
+            split_gene_id: null,
+          })
+        }}
       />
       <SearchableSelect
         label="Base Color"
@@ -1331,24 +1439,39 @@ function BirdPicker({ birds, takenId, takenCode = '', onClose, onSelect }) {
           </label>
         </div>
         <ul className="breed-picker">
+          {filtered.length ? null : <li className="breed-picker__empty">No birds match these filters.</li>}
           {filtered.map((bird) => {
             const preview = getSpeciesFormPreview({ id: bird.species_id, common_name: bird.species?.common_name }, bird.sex)
             const taken =
               bird.id === takenId ||
               (takenCode && bird.bird_id.localeCompare(takenCode, undefined, { sensitivity: 'accent' }) === 0)
+            const mutations = (bird.visual_mutations || []).map((item) => item?.name).filter(Boolean)
+            const splits = (bird.split_genes || []).map((item) => item?.name).filter(Boolean)
             return (
-              <li key={bird.id} className={taken ? 'is-taken' : undefined}>
-                {preview ? <img src={preview.src} alt={preview.alt} /> : <span className="breed-picker__ph" />}
-                <div>
-                  <strong>{bird.bird_id}</strong>
-                  <span>{speciesLabel(bird)}</span>
-                  <span>{bird.sex_label} · {bird.age_months} mo</span>
-                  <span>{bird.base_color?.name || 'No base color'}</span>
-                  <span>{names(bird.visual_mutations)}</span>
-                  <span>{names(bird.split_genes)}</span>
-                </div>
-                <button type="button" disabled={taken} onClick={() => onSelect(bird)}>
-                  {taken ? 'Already selected' : 'Select'}
+              <li key={bird.id}>
+                <button
+                  type="button"
+                  className="breed-picker__card"
+                  disabled={taken}
+                  onClick={() => onSelect(bird)}
+                >
+                  {preview ? <img src={preview.src} alt="" /> : <span className="breed-picker__ph" aria-hidden="true" />}
+                  <span className="breed-picker__copy">
+                    <strong className="breed-picker__id">{bird.bird_id}</strong>
+                    <span className="breed-picker__species">{speciesLabel(bird)}</span>
+                    <span className="breed-picker__meta">{bird.sex_label} · {bird.age_months} months</span>
+                    <span className="breed-picker__color">
+                      <span
+                        className="breed-picker__swatch"
+                        style={{ background: swatchForBaseColor(bird.base_color) }}
+                        aria-hidden="true"
+                      />
+                      {bird.base_color?.name || 'No base color'}
+                    </span>
+                    {mutations.length ? <span className="breed-picker__detail">Mutations: {mutations.join(', ')}</span> : null}
+                    {splits.length ? <span className="breed-picker__detail">Splits: {splits.join(', ')}</span> : null}
+                  </span>
+                  <span className="breed-picker__action">{taken ? 'Already selected' : 'Select'}</span>
                 </button>
               </li>
             )

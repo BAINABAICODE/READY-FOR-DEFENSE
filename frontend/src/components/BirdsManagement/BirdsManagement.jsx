@@ -1,6 +1,7 @@
 import { useCallback, useEffect, useId, useMemo, useRef, useState } from 'react'
 import { createPortal } from 'react-dom'
 import api from '../../api/client'
+import { getBirds, getCatalog } from '../../api/catalogs'
 import { getSpeciesFormPreview } from '../../assets/species-form/index.js'
 import BirdFormModal from './BirdFormModal.jsx'
 import './BirdsManagement.css'
@@ -44,6 +45,122 @@ function grandparentSummary(record) {
     geneDisplay(record) === '—' ? null : geneDisplay(record),
   ].filter(Boolean)
   return parts.length ? parts.join(' · ') : null
+}
+
+function sexLabel(sex) {
+  if (sex === 'hen') return 'Hen — Female'
+  if (sex === 'cock') return 'Cock — Male'
+  return sex || 'None'
+}
+
+function speciesOptionLabel(option) {
+  if (!option) return 'None'
+  if (option.alternate_names) return `${option.common_name} (${option.alternate_names})`
+  return option.label || option.common_name || option.name || 'None'
+}
+
+function catalogLabel(list, id) {
+  if (id === null || id === undefined || id === '') return 'None'
+  const row = (list || []).find((item) => String(item.id) === String(id))
+  return row?.label || row?.name || row?.common_name || 'None'
+}
+
+function idListLabel(list, ids) {
+  const names = (ids || [])
+    .map((id) => catalogLabel(list, id))
+    .filter((name) => name && name !== 'None')
+  return names.length ? names.join(', ') : 'None'
+}
+
+function payloadGrandparentLine(record, catalogs) {
+  if (!record?.species_id) return 'None'
+  const parts = [
+    catalogLabel(catalogs.speciesOptions, record.species_id),
+    catalogLabel(catalogs.baseColors, record.base_color_id),
+    idListLabel(catalogs.visualMutations, record.visual_mutation_ids),
+    idListLabel(catalogs.splitGenes, record.split_gene_ids),
+  ].filter((part) => part && part !== 'None')
+  return parts.length ? parts.join(' · ') : 'None'
+}
+
+function editHistory(bird, payload, catalogs) {
+  const changes = []
+  const push = (label, before, after) => {
+    if (String(before) !== String(after)) changes.push({ label, before, after })
+  }
+
+  push('Bird ID', bird.bird_id || 'None', payload.bird_id || 'None')
+  push(
+    'Species',
+    speciesOptionLabel(bird.species) === 'None' ? speciesDisplay(bird) : speciesOptionLabel(bird.species),
+    speciesOptionLabel((catalogs.speciesOptions || []).find((item) => String(item.id) === String(payload.species_id))),
+  )
+  push('Sex', sexDisplay(bird), sexLabel(payload.sex))
+  push('Age', bird.age_months == null ? 'None' : `${bird.age_months} mo`, `${payload.age_months} mo`)
+  push('Base Color', bird.base_color?.name || 'None', catalogLabel(catalogs.baseColors, payload.base_color_id))
+  push('Visual Mutation', visualMutationDisplay(bird) === '—' ? 'None' : visualMutationDisplay(bird), idListLabel(catalogs.visualMutations, payload.visual_mutation_ids))
+  push('Split / Hidden Genes', geneDisplay(bird) === '—' ? 'None' : geneDisplay(bird), idListLabel(catalogs.splitGenes, payload.split_gene_ids))
+
+  GRANDPARENT_LABELS.forEach(([key, label]) => {
+    push(
+      label,
+      grandparentSummary(bird.grandparents?.[key]) || 'None',
+      payloadGrandparentLine(payload.grandparents?.[key], catalogs),
+    )
+  })
+
+  return changes
+}
+
+function CenterConfirm({ title, copy, children, yesLabel, noLabel, onYes, onNo, busy }) {
+  useEffect(() => {
+    const onKeyDown = (event) => {
+      if (event.key === 'Escape' && !busy) onNo()
+    }
+    window.addEventListener('keydown', onKeyDown)
+    return () => window.removeEventListener('keydown', onKeyDown)
+  }, [busy, onNo])
+
+  return createPortal(
+    <div className="bird-confirm">
+      <button type="button" className="bird-confirm__backdrop" aria-label="No" onClick={onNo} disabled={busy} />
+      <div className="bird-confirm__dialog" role="dialog" aria-modal="true" aria-labelledby="bird-confirm-title">
+        <h2 id="bird-confirm-title" className="bird-confirm__title">{title}</h2>
+        {copy ? <p className="bird-confirm__copy">{copy}</p> : null}
+        {children}
+        <div className="bird-confirm__actions">
+          {noLabel ? (
+            <button type="button" className="birds__btn birds__btn--ghost" onClick={onNo} disabled={busy}>
+              {noLabel}
+            </button>
+          ) : null}
+          <button type="button" className="birds__btn birds__btn--primary" onClick={onYes} disabled={busy}>
+            {busy ? 'Please wait…' : yesLabel}
+          </button>
+        </div>
+      </div>
+    </div>,
+    document.body,
+  )
+}
+
+function EditHistoryList({ changes }) {
+  if (!changes.length) {
+    return <p className="bird-confirm__copy">No stored fields changed.</p>
+  }
+
+  return (
+    <ul className="bird-confirm__history">
+      {changes.map((change) => (
+        <li key={change.label}>
+          <strong>{change.label}</strong>
+          <span>{change.before}</span>
+          <span aria-hidden="true">→</span>
+          <span>{change.after}</span>
+        </li>
+      ))}
+    </ul>
+  )
 }
 
 function birdPreview(bird) {
@@ -248,20 +365,23 @@ export default function BirdsManagement() {
   const [hoveredBirdId, setHoveredBirdId] = useState(null)
   const [hoverAnchor, setHoverAnchor] = useState(null)
   const [selectedBirdId, setSelectedBirdId] = useState(null)
+  const [deleteTarget, setDeleteTarget] = useState(null)
+  const [editReview, setEditReview] = useState(null)
+  const [savedEdit, setSavedEdit] = useState(null)
 
   const catalogsLoadedRef = useRef(false)
 
   const loadBirds = useCallback(async () => {
-    const response = await api.get('/birds')
+    const response = await getBirds({ fresh: true })
     setBirds(response.data?.data ?? [])
   }, [])
 
   const loadCatalogs = useCallback(async () => {
     if (catalogsLoadedRef.current) return
     const results = await Promise.allSettled([
-      api.get('/base-colors'),
-      api.get('/visual-mutations'),
-      api.get('/split-genes'),
+      getCatalog('/base-colors'),
+      getCatalog('/visual-mutations'),
+      getCatalog('/split-genes'),
     ])
     const [colorsRes, mutationsRes, genesRes] = results
     if (colorsRes.status === 'fulfilled') setBaseColors(colorsRes.value.data?.data ?? [])
@@ -278,8 +398,8 @@ export default function BirdsManagement() {
     setLoadError('')
 
     const results = await Promise.allSettled([
-      api.get('/lovebird-species'),
-      api.get('/birds'),
+      getCatalog('/lovebird-species'),
+      getBirds(),
     ])
     const [speciesRes, birdsRes] = results
 
@@ -367,9 +487,10 @@ export default function BirdsManagement() {
     if (submitting) return
     setModalOpen(false)
     setEditingBird(null)
+    setEditReview(null)
   }
 
-  const handleSubmit = async (payload) => {
+  const saveBird = async (payload) => {
     setSubmitting(true)
     setActionError('')
     try {
@@ -386,17 +507,51 @@ export default function BirdsManagement() {
     }
   }
 
-  const handleDelete = async (bird) => {
-    const confirmed = window.confirm(`Delete bird ${bird.bird_id}? This cannot be undone.`)
-    if (!confirmed) return
+  const handleSubmit = async (payload) => {
+    if (modalMode === 'edit' && editingBird?.id) {
+      setEditReview({
+        payload,
+        birdId: editingBird.bird_id,
+        changes: editHistory(editingBird, payload, {
+          speciesOptions,
+          baseColors,
+          visualMutations,
+          splitGenes,
+        }),
+      })
+      return
+    }
 
+    await saveBird(payload)
+  }
+
+  const confirmEdit = async () => {
+    if (!editReview) return
+    const review = editReview
+    try {
+      await saveBird(review.payload)
+      setEditReview(null)
+      setSavedEdit(review)
+    } catch (error) {
+      const message = error?.response?.data?.message || 'Unable to save this edit.'
+      setEditReview((current) => (current ? { ...current, error: message } : current))
+    }
+  }
+
+  const confirmDelete = async () => {
+    if (!deleteTarget) return
+    setSubmitting(true)
     setActionError('')
     try {
-      await api.delete(`/birds/${bird.id}`)
-      if (selectedBirdId === bird.id) setSelectedBirdId(null)
+      await api.delete(`/birds/${deleteTarget.id}`)
+      if (selectedBirdId === deleteTarget.id) setSelectedBirdId(null)
+      setDeleteTarget(null)
       await loadBirds()
     } catch {
-      setActionError(`Unable to delete ${bird.bird_id}.`)
+      setActionError(`Unable to delete ${deleteTarget.bird_id}.`)
+      setDeleteTarget(null)
+    } finally {
+      setSubmitting(false)
     }
   }
 
@@ -643,7 +798,7 @@ export default function BirdsManagement() {
                         <button
                           type="button"
                           className="birds__btn birds__btn--danger"
-                          onClick={() => handleDelete(bird)}
+                          onClick={() => setDeleteTarget(bird)}
                         >
                           Delete
                         </button>
@@ -703,7 +858,7 @@ export default function BirdsManagement() {
                           <button
                             type="button"
                             className="birds__btn birds__btn--danger"
-                            onClick={() => handleDelete(bird)}
+                            onClick={() => setDeleteTarget(bird)}
                           >
                             Delete
                           </button>
@@ -753,6 +908,50 @@ export default function BirdsManagement() {
         onClose={closeModal}
         onSubmit={handleSubmit}
       />
+
+      {deleteTarget ? (
+        <CenterConfirm
+          title="Delete this bird?"
+          copy={`Delete ${deleteTarget.bird_id}? This removes the saved profile.`}
+          yesLabel="Yes"
+          noLabel="No"
+          busy={submitting}
+          onYes={confirmDelete}
+          onNo={() => {
+            if (!submitting) setDeleteTarget(null)
+          }}
+        />
+      ) : null}
+
+      {editReview ? (
+        <CenterConfirm
+          title="Save this edit?"
+          copy={`Review the changes for ${editReview.birdId}, then confirm.`}
+          yesLabel="Yes"
+          noLabel="No"
+          busy={submitting}
+          onYes={confirmEdit}
+          onNo={() => {
+            if (!submitting) setEditReview(null)
+          }}
+        >
+          {editReview.error ? <p className="bird-confirm__error">{editReview.error}</p> : null}
+          <EditHistoryList changes={editReview.changes} />
+        </CenterConfirm>
+      ) : null}
+
+      {savedEdit ? (
+        <CenterConfirm
+          title="Edit history"
+          copy={`${savedEdit.birdId} was updated.`}
+          yesLabel="Close"
+          busy={false}
+          onYes={() => setSavedEdit(null)}
+          onNo={() => setSavedEdit(null)}
+        >
+          <EditHistoryList changes={savedEdit.changes} />
+        </CenterConfirm>
+      ) : null}
     </main>
   )
 }

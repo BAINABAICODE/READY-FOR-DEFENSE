@@ -4,7 +4,7 @@ import { buildRbgiaTrace } from '../rbgiaTrace'
 
 const storedGreywing = [
   { genotype: 'Grw+/Grw+', sex: 'cock', probability: 0.25, expression: 'non_carrier', phenotype: 'Wild' },
-  { genotype: 'Grw+/Grw', sex: 'cock', probability: 0.25, expression: 'visual_heterozygous', phenotype: 'SL Greywing SF' },
+  { genotype: 'Grw+/Grw', sex: 'cock', probability: 0.25, expression: 'visual_single_factor', phenotype: 'SL Greywing SF' },
   { genotype: 'Grw+/W', sex: 'hen', probability: 0.25, expression: 'hemizygous_wild', phenotype: 'Wild' },
   { genotype: 'Grw/W', sex: 'hen', probability: 0.25, expression: 'visual_hemizygous', phenotype: 'SL Greywing' },
 ]

@@ -24,12 +24,15 @@ export function classifyExpression(genotype, mode) {
   const wildCount = [a, b].filter(isWildType).length
   if (wildCount === 2) return 'non_carrier'
   if (wildCount === 1) {
-    if (mode?.recessive || mode?.key === 'wild_type' || mode?.unknown) return 'carrier_split'
-    if (mode?.incomplete) return 'visual_heterozygous'
+    if (mode?.incomplete) return 'visual_single_factor'
     if (mode?.dominant) return 'visual_heterozygous'
     return 'carrier_split'
   }
-  if (a === b) return mode?.incomplete ? 'visual_double' : 'visual_homozygous'
+  if (a === b) {
+    if (mode?.incomplete) return 'visual_double'
+    if (mode?.dominant) return 'visual_homozygous'
+    return 'visual'
+  }
   return 'visual_compound'
 }
 

@@ -4,8 +4,14 @@ import { percentText } from '../shared/format'
 /** F5 — shows every gamete path that contributes to an outcome and the aggregated fraction. */
 export default function FormulaTrace({ locus }) {
   if (!locus.outcomes.length) return <p className="gx-muted">Nothing to aggregate.</p>
+  const carrier = locus.carrierHomozygous
   return (
     <div className="gx-aggregate">
+      {carrier ? (
+        <p className="gx-formula__line">
+          Visual homozygous from split carriers: {carrier.formula}. {carrier.statement}
+        </p>
+      ) : null}
       <p className="gx-formula__line">
         P(outcome) = Σ P(gamete<sub>cock</sub>) × P(gamete<sub>hen</sub>) = (equivalent cells) ÷ (total cells)
       </p>

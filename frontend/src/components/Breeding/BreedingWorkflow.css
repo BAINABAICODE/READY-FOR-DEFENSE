@@ -148,8 +148,7 @@
 
 .breed-steps__item,
 .breed__btn,
-.breed-modal header button,
-.breed-picker button {
+.breed-modal header button {
   border: 1px solid rgba(15, 92, 82, 0.18);
   border-radius: 999px;
   background: #fff;
@@ -166,8 +165,7 @@
 }
 
 .breed-steps__item.is-current,
-.breed__btn--primary,
-.breed-picker button {
+.breed__btn--primary {
   background: var(--brand);
   border-color: var(--brand);
   color: #fff;
@@ -187,8 +185,7 @@
 }
 
 .breed-steps__item:disabled,
-.breed__btn:disabled,
-.breed-picker button:disabled {
+.breed__btn:disabled {
   cursor: not-allowed;
   opacity: 0.45;
 }
@@ -483,50 +480,153 @@ main.breed .breed-card__preview {
 .breed-modal label {
   display: grid;
   gap: 0.35rem;
-  font-size: 0.82rem;
-  color: var(--brand-deep);
+  font-size: 1rem;
+  font-weight: 700;
+  color: #0a1612;
 }
 
 .breed-modal input,
 .breed-modal select {
   width: 100%;
-  border: 1px solid rgba(15, 92, 82, 0.18);
-  border-radius: 0.6rem;
-  padding: 0.5rem 0.65rem;
+  min-height: 2.75rem;
+  border: 1px solid rgba(15, 92, 82, 0.22);
+  border-radius: 0.7rem;
+  padding: 0.55rem 0.75rem;
   font: inherit;
+  font-size: 1.05rem;
+  font-weight: 600;
+  color: #0a1612;
+}
+
+.breed-modal header button {
+  min-height: 2.6rem;
+  padding: 0.4rem 1rem;
+  font-size: 1rem;
+  font-weight: 700;
 }
 
 .breed-picker {
   display: grid;
-  gap: 0.65rem;
+  gap: 0.75rem;
   margin: 0;
   padding: 0;
   list-style: none;
 }
 
 .breed-picker li {
-  display: grid;
-  grid-template-columns: 72px 1fr auto;
-  gap: 0.75rem;
-  align-items: center;
-  padding: 0.65rem;
-  border: 1px solid rgba(15, 92, 82, 0.12);
-  border-radius: 0.8rem;
+  display: block;
+  padding: 0;
+  border: 0;
+  background: transparent;
 }
 
-.breed-picker li.is-taken {
+.breed-picker__empty {
+  padding: 1rem;
+  border-radius: 0.9rem;
+  background: #fff;
+  color: #0a1612;
+  font-size: 1.05rem;
+  font-weight: 650;
+}
+
+.breed-picker__card {
+  display: grid;
+  grid-template-columns: 88px minmax(0, 1fr) auto;
+  gap: 0.9rem;
+  align-items: center;
+  width: 100%;
+  padding: 0.85rem;
+  border: 2px solid rgba(10, 22, 18, 0.12);
+  border-radius: 1rem;
+  background: #fff;
+  color: #0a1612;
+  font: inherit;
+  text-align: left;
+  cursor: pointer;
+  box-shadow: 0 6px 16px rgba(18, 34, 28, 0.06);
+}
+
+.breed-picker__card:hover:not(:disabled) {
+  border-color: #d4af37;
+  box-shadow: 0 10px 22px rgba(18, 34, 28, 0.1);
+}
+
+.breed-picker__card:focus-visible {
+  outline: 3px solid #0b2e1f;
+  outline-offset: 2px;
+}
+
+.breed-picker__card:disabled {
+  cursor: not-allowed;
   opacity: 0.55;
 }
 
-.breed-picker li div {
-  display: grid;
-  gap: 0.15rem;
-  font-size: 0.86rem;
-  color: var(--muted);
+.breed-picker img,
+.breed-picker__ph {
+  width: 88px;
+  height: 88px;
+  border-radius: 0.75rem;
+  object-fit: contain;
+  background: #e7efe9;
 }
 
-.breed-picker strong {
-  color: var(--brand-deep);
+.breed-picker__copy {
+  display: grid;
+  gap: 0.18rem;
+  min-width: 0;
+}
+
+.breed-picker__id {
+  font-family: var(--font-display);
+  font-size: 1.35rem;
+  font-weight: 650;
+  line-height: 1.15;
+  color: #0a1612;
+}
+
+.breed-picker__species {
+  font-size: 1.05rem;
+  font-weight: 700;
+  color: #0a1612;
+}
+
+.breed-picker__meta,
+.breed-picker__detail {
+  font-size: 1rem;
+  font-weight: 600;
+  color: #24332c;
+}
+
+.breed-picker__color {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.45rem;
+  font-size: 1.05rem;
+  font-weight: 750;
+  color: #0a1612;
+}
+
+.breed-picker__swatch {
+  width: 1.15rem;
+  height: 1.15rem;
+  border-radius: 999px;
+  border: 2px solid rgba(10, 22, 18, 0.28);
+  flex: 0 0 auto;
+}
+
+.breed-picker__action {
+  justify-self: end;
+  padding: 0.45rem 0.8rem;
+  border-radius: 999px;
+  background: #0b2e1f;
+  color: #f5efe0;
+  font-size: 0.95rem;
+  font-weight: 750;
+  letter-spacing: 0.02em;
+}
+
+.breed-picker__card:disabled .breed-picker__action {
+  background: #8a938c;
 }
 
 .breed-hint {
@@ -731,8 +831,13 @@ main.breed .breed-card__preview {
     grid-template-columns: 1fr;
   }
 
-  .breed-picker li {
-    grid-template-columns: 56px 1fr;
+  .breed-picker__card {
+    grid-template-columns: 72px minmax(0, 1fr);
+  }
+
+  .breed-picker__action {
+    grid-column: 2;
+    justify-self: start;
   }
 }
 
@@ -1402,7 +1507,10 @@ main.breed .breed-card__preview {
 }
 
 .breed-modal header h2 {
+  margin: 0;
   font-family: var(--font-display);
+  font-size: 1.65rem;
+  line-height: 1.15;
   color: #0a1612;
 }
 
@@ -1417,10 +1525,6 @@ main.breed .breed-card__preview {
   color: #061c13;
   font-size: 0.78rem;
   font-weight: 700;
-}
-
-.breed-picker li {
-  background: #ffffff;
 }
 
 @media (max-width: 800px) {

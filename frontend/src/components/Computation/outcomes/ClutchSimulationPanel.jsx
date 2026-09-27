@@ -48,23 +48,22 @@ export default function ClutchSimulationPanel({ simulation, eggs = [] }) {
     <section className="clutch-panel" aria-labelledby="clutch-panel-title">
       <header className="clutch-panel__head">
         <div>
-          <p className="compute-result__eyebrow">Pair compatibility → clutch simulation (Layer 2)</p>
-          <h3 id="clutch-panel-title">Pair Compatibility</h3>
+          <p className="compute-result__eyebrow">Nest order</p>
+          <h3 id="clutch-panel-title">Expected eggs and chicks</h3>
         </div>
-        <StatusPill tone="info">Seed {simulation.seed} · replayable</StatusPill>
       </header>
 
       <dl className="clutch-stats">
-        <Stat label="GICA Score" value={simulation.gica_score != null ? `${simulation.gica_score} / 100` : '—'} />
-        <Stat label="Compatibility Level" value={level.label || '—'} hint={level.range ? `Range ${level.range} · tendency ${level.tendency}` : null} />
-        <Stat label="Simulated Clutch" value={`${counts.eggs_laid ?? simulation.clutch_size ?? '—'} Eggs`} hint={`Allowed ${simulation.allowed_range?.min ?? 3}–${simulation.allowed_range?.max ?? 7}`} />
-        <Stat label="Living Chicks" value={counts.living_chicks ?? '—'} hint={level.viability_tendency || null} />
-        <Stat label="Egg Outcome" value={<ul className="clutch-outcome-lines">{outcomeLines.map((line) => <li key={line}>{line}</li>)}</ul>} />
+        <Stat label="Score" value={simulation.gica_score != null ? `${simulation.gica_score} / 100` : '—'} />
+        <Stat label="Pair rating" value={level.label || '—'} hint={level.range ? `Score range ${level.range}` : null} />
+        <Stat label="Eggs" value={`${counts.eggs_laid ?? simulation.clutch_size ?? '—'} eggs`} hint={`Usual range ${simulation.allowed_range?.min ?? 3}–${simulation.allowed_range?.max ?? 7}`} />
+        <Stat label="Living chicks" value={counts.living_chicks ?? '—'} />
+        <Stat label="What happened" value={<ul className="clutch-outcome-lines">{outcomeLines.map((line) => <li key={line}>{line}</li>)}</ul>} />
       </dl>
 
       <p className="clutch-panel__explanation">{simulation.explanation}</p>
 
-      <ol className="clutch-timeline" aria-label="Simulated egg outcomes">
+      <ol className="clutch-timeline" aria-label="Eggs in nest order">
         {eggTimeline.map((egg) => {
           const short = eggStatusShort(egg.status, egg.status_label)
           const card = egg.card
@@ -84,7 +83,7 @@ export default function ClutchSimulationPanel({ simulation, eggs = [] }) {
         })}
       </ol>
 
-      <Disclosure title="Clutch-size distribution used for this compatibility level" defaultOpen={false}>
+      <Disclosure title="Why this many eggs" defaultOpen={false}>
         <p className="gx-muted">
           Sampled clutch size roll: <code className="gx-code">{simulation.clutch_roll}</code> against the cumulative distribution below →{' '}
           <strong>{simulation.clutch_size} eggs</strong>. Higher compatibility shifts probability toward larger clutches; it never guarantees one.
@@ -121,7 +120,7 @@ export default function ClutchSimulationPanel({ simulation, eggs = [] }) {
         </table>
       </Disclosure>
 
-      <Disclosure title="Per-egg simulation trace (fertilization → development → hatching → RBGIA sample)" defaultOpen={false}>
+      <Disclosure title="How each egg was decided" defaultOpen={false}>
         <p className="gx-muted">
           Each stage compares a seeded roll with the stage success tendency. A living chick then samples its genotype from the RBGIA
           pool below — GICA never changes those probabilities.

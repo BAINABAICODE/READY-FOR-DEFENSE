@@ -32,6 +32,7 @@ class HeadToTailPhenotypeCatalog
             'tail' => $row->tail,
             'pigment_notes' => $row->pigment_notes,
             'source' => $row->source,
+            'phenotype_signature' => $row->phenotype_signature,
         ];
     }
 
@@ -93,6 +94,11 @@ class HeadToTailPhenotypeCatalog
             ->where('lovebird_species_id', $speciesId)
             ->first();
 
+        return self::payloadOrIdentity($row, $speciesId);
+    }
+
+    public static function payloadOrIdentity(?HeadToTailPhenotype $row, int $speciesId): ?array
+    {
         return self::payload($row) ?? self::identityPayload(HeadToTailPhenotypeDataset::identityFor($speciesId) ?? []);
     }
 
@@ -110,9 +116,9 @@ class HeadToTailPhenotypeCatalog
             return self::payload($row);
         }
 
-        return HeadToTailPhenotypeDataset::compose(
+        return HeadToTailPhenotypeDataset::uniqueForMutation(
             $mutation->lovebird_species_id,
-            [$mutation->name],
+            $mutation->name,
         );
     }
 

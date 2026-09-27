@@ -84,4 +84,44 @@ class HeadToTailPhenotypeDatasetTest extends TestCase
         $this->assertNotContains('Orange Face', $blueOrange['visual_mutations']);
         $this->assertStringContainsString('not a visible mutation', strtolower($blueOrange['pigment_notes']));
     }
+
+    public function test_every_visual_mutation_has_a_unique_head_to_tail_phenotype(): void
+    {
+        $records = VisualMutationDataset::records(dirname(__DIR__, 2).'/database/data/visual-mutations');
+        $this->assertNotEmpty($records);
+
+        $signatures = [];
+        foreach (HeadToTailPhenotypeDataset::speciesIdentities() as $identity) {
+            $signatures[HeadToTailPhenotypeDataset::signature($identity)] = $identity['scientific_name'];
+        }
+
+        $diluteBodies = [];
+        foreach ($records as $record) {
+            $speciesId = HeadToTailPhenotypeDataset::resolveSpeciesId($record['scientific_name']);
+            $map = HeadToTailPhenotypeDataset::uniqueForMutation($speciesId, $record['name']);
+            $label = $record['scientific_name'].' · '.$record['name'];
+
+            $this->assertNotNull($map, $label);
+            $palette = HeadToTailPhenotypeDataset::colorPalette();
+            foreach (HeadToTailPhenotypeDataset::REGIONS as $region) {
+                $value = trim((string) ($map[$region] ?? ''));
+                $this->assertArrayHasKey($value, $palette, "{$label} {$region} is not a color");
+            }
+
+            $signature = (string) $map['phenotype_signature'];
+            $this->assertSame(HeadToTailPhenotypeDataset::signature($map), $signature);
+            $this->assertArrayNotHasKey($signature, $signatures, $label.' repeats '.($signatures[$signature] ?? ''));
+            $signatures[$signature] = $label;
+
+            if ($record['name'] === 'Dilute') {
+                $diluteBodies[$record['scientific_name']] = $map['body'];
+            }
+        }
+
+        $this->assertGreaterThan(1, count($diluteBodies));
+        $this->assertCount(count($diluteBodies), array_unique($diluteBodies));
+        $this->assertSame('Pale grass green', $diluteBodies['Agapornis roseicollis']);
+        $this->assertSame('Soft green', $diluteBodies['Agapornis lilianae']);
+        $this->assertSame('Light green', $diluteBodies['Agapornis nigrigenis']);
+    }
 }

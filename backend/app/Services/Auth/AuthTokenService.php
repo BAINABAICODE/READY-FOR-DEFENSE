@@ -9,6 +9,8 @@ use Illuminate\Support\Str;
 
 class AuthTokenService
 {
+    private const LAST_USED_REFRESH_MINUTES = 5;
+
     public function issue(User $user): string
     {
         $user->authTokens()->where('expires_at', '<=', now())->delete();
@@ -34,7 +36,10 @@ class AuthTokenService
             return null;
         }
 
-        $token->forceFill(['last_used_at' => now()])->save();
+        $lastUsed = $token->last_used_at;
+        if ($lastUsed === null || $lastUsed->lte(now()->subMinutes(self::LAST_USED_REFRESH_MINUTES))) {
+            $token->forceFill(['last_used_at' => now()])->save();
+        }
 
         return $token->user;
     }

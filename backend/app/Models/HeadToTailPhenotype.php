@@ -25,6 +25,7 @@ class HeadToTailPhenotype extends Model
         'tail',
         'pigment_notes',
         'source',
+        'phenotype_signature',
     ];
 
     protected function casts(): array

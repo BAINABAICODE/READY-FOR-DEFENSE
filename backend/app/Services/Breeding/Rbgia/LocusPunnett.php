@@ -133,15 +133,22 @@ class LocusPunnett
             return $mutants === [] ? 'hemizygous_wild' : 'visual_hemizygous';
         }
 
-        if (str_contains($type, 'dominant') && ! str_contains($type, 'recessive')) {
-            if ($mutants !== []) {
-                return count($mutants) >= 2 ? 'visual_homozygous' : 'visual_heterozygous';
+        $incomplete = str_contains($type, 'incomplete')
+            || str_contains($type, 'intermediate')
+            || str_contains($type, 'partial')
+            || str_contains($type, 'co-dominant')
+            || str_contains($type, 'codominant');
+        $completeDominant = str_contains($type, 'dominant')
+            && ! str_contains($type, 'recessive')
+            && ! $incomplete;
+        $distinctMutants = count($mutants) >= 2 && count(array_unique($mutants)) > 1;
+
+        // Dosage before complete dominance: "Intermediate dominant" and
+        // "Incomplete dominant" both contain the word "dominant".
+        if ($incomplete && ! str_contains($type, 'recessive')) {
+            if ($distinctMutants) {
+                return 'visual_compound';
             }
-
-            return 'non_carrier';
-        }
-
-        if (str_contains($type, 'incomplete') || str_contains($type, 'intermediate') || str_contains($type, 'partial')) {
             if (count($mutants) >= 2) {
                 return 'visual_double';
             }
@@ -152,7 +159,22 @@ class LocusPunnett
             return $mutants === [] ? 'non_carrier' : 'visual';
         }
 
-        // Default recessive-style reading for AR / sex-linked recessive males
+        if ($completeDominant) {
+            if ($distinctMutants) {
+                return 'visual_compound';
+            }
+            if ($mutants !== []) {
+                return count($mutants) >= 2 ? 'visual_homozygous' : 'visual_heterozygous';
+            }
+
+            return 'non_carrier';
+        }
+
+        if ($distinctMutants && $wild === []) {
+            return 'visual_compound';
+        }
+
+        // Recessive reading for autosomal recessive and Z-linked recessive cocks.
         if (count($mutants) >= 2 && count(array_unique($mutants)) === 1) {
             return 'visual';
         }

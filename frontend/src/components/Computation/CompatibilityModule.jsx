@@ -14,6 +14,8 @@ import InheritanceBreakdown from './inheritance/InheritanceBreakdown'
 import RbgiaSummary from './inheritance/RbgiaSummary'
 import OutcomeDistribution from './outcomes/OutcomeDistribution'
 import OutcomeCards from './outcomes/OutcomeCards'
+import { ProbabilityBar } from './shared/primitives'
+import { barColor, geneInheritanceRows } from './shared/format'
 import ClutchInterpretation from './outcomes/ClutchInterpretation'
 import './CompatibilityModule.css'
 
@@ -38,7 +40,7 @@ export default function CompatibilityModule({ result }) {
         <h2 id="gx-compat-title">Deterministic compatibility analysis</h2>
         <p className="gx-block__lead">
           Genetic Inheritance Compatibility Analysis (GICA) scores this pair from stored parental records using fixed, rule-based
-          factors. Every value below is computed from Parent 1 and Parent 2 data — no machine learning is involved.
+          factors. Every value below is computed from the stored records for Parent 1 and Parent 2.
         </p>
         <CompatibilitySummary model={model} rbgiaSummary={{ ...trace.summary, lociTotal: trace.loci.length }} confidence={confidence} />
       </section>
@@ -64,14 +66,37 @@ export default function CompatibilityModule({ result }) {
         <h2 id="gx-rbgia-title">RBGIA — Rule-Based Genetic Inheritance Analysis</h2>
         <p className="gx-block__lead">
           RBGIA evaluates parental alleles using deterministic inheritance rules, gamete formation, Punnett-square combinations,
-          inheritance-mode classification, and phenotype mapping. The result is an algorithmic genetic probability distribution,
-          not an AI prediction: the same parental input always yields the same result.
+          inheritance-mode classification, and phenotype mapping. The same parental records always yield the same result.
         </p>
         <h3 className="gx-block__subtitle">Visual appearance distribution</h3>
         <p className="gx-note gx-note--lead">Base colour + expressed visual mutation, pooled across sex and hidden splits ({trace.appearanceOutcomes.length} classes).</p>
         <OutcomeDistribution groups={trace.appearanceOutcomes} total={trace.joint.total} source={trace.joint.source} tone="brand" />
+        <h3 className="gx-block__subtitle gx-block__subtitle--spaced">Chance of each gene</h3>
+        <p className="gx-note gx-note--lead">
+          Each bar is one gene, not one full chick. A gene every chick inherits is 100%. A gene only half the chicks inherit is 50%. These lengths are not the same as the chick list.
+        </p>
+        {['base_color', 'visual_mutation', 'split_gene'].map((kind) => {
+          const title = kind === 'base_color' ? 'Base color' : kind === 'visual_mutation' ? 'Visual mutation' : 'Hidden gene'
+          const rows = geneInheritanceRows(trace.joint.rows, kind)
+          if (!rows.length) return null
+          return (
+            <div key={kind}>
+              <h4 className="gx-block__subtitle gx-block__subtitle--spaced">{title}</h4>
+              <ol className="gx-distribution__list">
+                {rows.map((row, index) => (
+                  <li key={`${kind}-${row.trait}`} className="gx-distribution__row">
+                    <div className="gx-distribution__label">
+                      <span className="gx-distribution__name">{row.trait}</span>
+                    </div>
+                    <ProbabilityBar probability={row.probability} label={row.trait} color={barColor(row.trait, index)} />
+                  </li>
+                ))}
+              </ol>
+            </div>
+          )
+        })}
         <h3 className="gx-block__subtitle gx-block__subtitle--spaced">Full predicted offspring distribution</h3>
-        <p className="gx-note gx-note--lead">Every distinct sex + visual + split combination the engine produced ({trace.visualOutcomes.length} outcomes).</p>
+        <p className="gx-note gx-note--lead">Every distinct sex + visual + split combination the engine produced ({trace.visualOutcomes.length} outcomes). When three genes each split in half, every full combination has the same chance. Each bar has its own color so the chicks stay distinct.</p>
         <OutcomeDistribution groups={trace.visualOutcomes} total={trace.joint.total} source={trace.joint.source} />
       </section>
 

@@ -6,7 +6,9 @@ use App\Models\Bird;
 use App\Services\Breeding\Rbgia\GeneticCodeParser;
 use App\Services\Breeding\Rbgia\JointOffspringAssembler;
 use App\Services\Breeding\Rbgia\LocusPunnett;
+use App\Services\Breeding\Rbgia\MendelianLocusResolver;
 use App\Services\Breeding\Rbgia\PhenotypeFromGenotype;
+use App\Services\Breeding\Rbgia\SplitCarrierHomozygousComputation;
 
 /**
  * AGAPORA RBGIA — deterministic two-parent inheritance from stored genetic records.
@@ -24,6 +26,8 @@ class RbgiaPredictor
         private readonly LocusPunnett $punnett,
         private readonly JointOffspringAssembler $assembler,
         private readonly PhenotypeFromGenotype $phenotypes,
+        private readonly MendelianLocusResolver $mendelian,
+        private readonly SplitCarrierHomozygousComputation $splitCarrierHomozygous,
     ) {}
 
     /**
@@ -77,8 +81,7 @@ class RbgiaPredictor
 
         $outcomes = [];
         $outcomes = array_merge($outcomes, $this->baseColorLoci($cock, $hen, $speciesId));
-        $outcomes = array_merge($outcomes, $this->visualMutationOutcomes($cock, $hen, $speciesId));
-        $outcomes = array_merge($outcomes, $this->splitGeneOutcomes($cock, $hen, $speciesId));
+        $outcomes = array_merge($outcomes, $this->mendelianMutationOutcomes($cock, $hen, $speciesId));
         $outcomes = array_merge($outcomes, $this->chromosomalSexOutcome($cock, $hen, $outcomes));
 
         $joint = $this->assembler->assemble($outcomes);
@@ -92,7 +95,7 @@ class RbgiaPredictor
 
         return [
             'status' => $joint['status'] === 'insufficient_data' ? 'insufficient_data' : 'completed',
-            'message' => 'Predicted from the available genetic records and documented inheritance rules. Missing parental genotypes were not invented. Same parent inputs always yield the same deterministic result.',
+            'message' => 'Each gene is one Mendelian locus: the two alleles segregate, and separate loci assort independently. A recessive visual mutation is a hidden split when only one mutant allele is inherited. Sex-linked alleles are segments of the Z chromosome. Missing genotypes were not invented.',
             'provisional' => $confidence !== 'CONFIRMED',
             'confidence' => $confidence,
             'confidence_notes' => $joint['notes'],
@@ -149,8 +152,11 @@ class RbgiaPredictor
             ]];
         }
 
-        $cockSegments = $this->parser->parseSegments($left->genetic_code);
-        $henSegments = $this->parser->parseSegments($right->genetic_code);
+        $cockGround = $this->mendelian->resolveGround($cock, $this->parser->parseSegments($left->genetic_code));
+        $henGround = $this->mendelian->resolveGround($hen, $this->parser->parseSegments($right->genetic_code));
+        $cockSegments = $cockGround['segments'];
+        $henSegments = $henGround['segments'];
+        $allelePhenotypes = array_merge($cockGround['allele_phenotypes'], $henGround['allele_phenotypes']);
 
         if ($cockSegments === [] || $henSegments === []) {
             return [[
@@ -177,7 +183,7 @@ class RbgiaPredictor
                 default => $left->name.($pairCount > 1 ? ' locus '.($index + 1) : ''),
             };
 
-            $outcomes[] = $this->locusOutcome(
+            $outcome = $this->locusOutcome(
                 category: 'base_color',
                 name: $name,
                 locusKey: $hint,
@@ -190,10 +196,22 @@ class RbgiaPredictor
                 sexLinked: false,
                 speciesId: $speciesId,
                 parentContribution: [
-                    'parent_cock' => ['record' => $left->name, 'code' => $cockSeg['segment'], 'confidence' => $this->recordConfidence($left->verification_status)],
-                    'parent_hen' => ['record' => $right->name, 'code' => $henSeg['segment'], 'confidence' => $this->recordConfidence($right->verification_status)],
+                    'parent_cock' => [
+                        'record' => $hint === 'ground_color' ? ($cockGround['ground_record'] ?? $left->name) : $left->name,
+                        'code' => $cockSeg['segment'],
+                        'confidence' => $this->recordConfidence($left->verification_status),
+                    ],
+                    'parent_hen' => [
+                        'record' => $hint === 'ground_color' ? ($henGround['ground_record'] ?? $right->name) : $right->name,
+                        'code' => $henSeg['segment'],
+                        'confidence' => $this->recordConfidence($right->verification_status),
+                    ],
                 ],
             );
+            if ($hint === 'ground_color' && $allelePhenotypes !== []) {
+                $outcome['allele_phenotypes'] = $allelePhenotypes;
+            }
+            $outcomes[] = $outcome;
         }
 
         if (count($cockSegments) !== count($henSegments)) {
@@ -210,199 +228,61 @@ class RbgiaPredictor
     }
 
     /**
+     * Visual mutations and split genes of the same locus are one cross.
+     * A recessive heterozygote is a hidden split. A dominant or incomplete-dominant heterozygote stays visual.
+     *
      * @return list<array<string, mixed>>
      */
-    private function visualMutationOutcomes(Bird $cock, Bird $hen, int $speciesId): array
+    private function mendelianMutationOutcomes(Bird $cock, Bird $hen, int $speciesId): array
     {
-        $left = $this->indexedById($cock->visualMutations);
-        $right = $this->indexedById($hen->visualMutations);
-        $keys = array_values(array_unique(array_merge(array_keys($left), array_keys($right))));
         $outcomes = [];
 
-        foreach ($keys as $key) {
-            $record = $left[$key] ?? $right[$key];
-            $leftCode = isset($left[$key]) ? $left[$key]->genetic_code : null;
-            $rightCode = isset($right[$key]) ? $right[$key]->genetic_code : null;
-            $sexLinked = $this->isSexLinked($record->inheritance_type);
-            $assumedCock = false;
-            $assumedHen = false;
-
-            if ($leftCode === null) {
-                $leftCode = $this->documentedNonCarrierCode($record, Bird::SEX_COCK);
-                $assumedCock = $leftCode !== null;
-            }
-            if ($rightCode === null) {
-                $rightCode = $this->documentedNonCarrierCode($record, Bird::SEX_HEN);
-                $assumedHen = $rightCode !== null;
-            }
-
-            if ($leftCode === null || $rightCode === null) {
+        foreach ($this->mendelian->mutationSpecs($cock, $hen) as $spec) {
+            if (($spec['status'] ?? null) !== 'calculated') {
                 $outcomes[] = [
-                    'category' => 'visual_mutation',
-                    'name' => $record->name,
-                    'inheritance_type' => $record->inheritance_type,
-                    'status' => 'not_calculated',
-                    'reason' => 'Calculation unavailable. Missing parental genotype for this locus, and no documented wild-type/non-carrier allele is stored for the unselected parent.',
-                    'confidence' => 'unknown',
+                    'category' => $spec['category'],
+                    'name' => $spec['name'],
+                    'locus_key' => $spec['locus_key'],
+                    'inheritance_type' => $spec['inheritance_type'],
+                    'status' => $spec['status'],
+                    'reason' => $spec['reason'] ?? 'Calculation unavailable.',
+                    'confidence' => ($spec['status'] ?? null) === 'blocked' ? 'confirmed_rule_block' : 'unknown',
                     'results' => [],
                 ];
                 continue;
             }
-
-            if ((int) $record->lovebird_species_id !== $speciesId && $speciesId > 0) {
-                $outcomes[] = [
-                    'category' => 'visual_mutation',
-                    'name' => $record->name,
-                    'status' => 'not_calculated',
-                    'reason' => 'Calculation unavailable. Mutation record is not aligned to the pair species dataset.',
-                    'results' => [],
-                ];
-                continue;
-            }
-
-            $cockSegment = $sexLinked
-                ? $this->parser->sexSpecificSegment($leftCode, Bird::SEX_COCK)
-                : ($this->parser->parseSegments($leftCode)[0]['segment'] ?? $leftCode);
-            $henSegment = $sexLinked
-                ? $this->parser->sexSpecificSegment($rightCode, Bird::SEX_HEN)
-                : ($this->parser->parseSegments($rightCode)[0]['segment'] ?? $rightCode);
-
-            $cockAlleles = $this->parser->allelePair($cockSegment);
-            $henAlleles = $this->parser->allelePair($henSegment);
 
             $outcome = $this->locusOutcome(
-                category: 'visual_mutation',
-                name: $record->name,
-                locusKey: 'visual:'.$record->id,
-                inheritanceType: $record->inheritance_type,
-                cockCode: $cockSegment,
-                henCode: $henSegment,
-                cockAlleles: $cockAlleles,
-                henAlleles: $henAlleles,
-                verificationStatus: $record->verification_status,
-                sexLinked: $sexLinked,
+                category: $spec['category'],
+                name: $spec['name'],
+                locusKey: $spec['locus_key'],
+                inheritanceType: $spec['inheritance_type'],
+                cockCode: $spec['cock_code'],
+                henCode: $spec['hen_code'],
+                cockAlleles: $spec['cock_alleles'],
+                henAlleles: $spec['hen_alleles'],
+                verificationStatus: $spec['verification_status'],
+                sexLinked: (bool) $spec['sex_linked'],
                 speciesId: $speciesId,
                 parentContribution: [
                     'parent_cock' => [
-                        'record' => isset($left[$key]) ? $record->name : 'Documented non-carrier (not selected)',
-                        'code' => $cockSegment,
-                        'confidence' => $assumedCock ? 'probable' : $this->recordConfidence($record->verification_status),
-                        'assumed_non_carrier' => $assumedCock,
+                        'record' => $spec['cock_record'],
+                        'code' => $spec['cock_code'],
+                        'confidence' => $spec['assumed_cock'] ? 'probable' : $this->recordConfidence($spec['verification_status']),
+                        'assumed_non_carrier' => $spec['assumed_cock'],
                     ],
                     'parent_hen' => [
-                        'record' => isset($right[$key]) ? $record->name : 'Documented non-carrier (not selected)',
-                        'code' => $henSegment,
-                        'confidence' => $assumedHen ? 'probable' : $this->recordConfidence($record->verification_status),
-                        'assumed_non_carrier' => $assumedHen,
+                        'record' => $spec['hen_record'],
+                        'code' => $spec['hen_code'],
+                        'confidence' => $spec['assumed_hen'] ? 'probable' : $this->recordConfidence($spec['verification_status']),
+                        'assumed_non_carrier' => $spec['assumed_hen'],
                     ],
                 ],
             );
-            if ($assumedCock || $assumedHen) {
+            if ($spec['assumed_cock'] || $spec['assumed_hen']) {
                 $outcome['provisional'] = true;
                 $outcome['confidence'] = 'probable';
-                $outcome['assumption_note'] = 'Unselected parent treated as documented non-carrier using the stored wild-type allele for this mutation/locus.';
-            }
-            $outcomes[] = $outcome;
-        }
-
-        return $outcomes;
-    }
-
-    /**
-     * @return list<array<string, mixed>>
-     */
-    private function splitGeneOutcomes(Bird $cock, Bird $hen, int $speciesId): array
-    {
-        $left = $this->indexedBySymbol($cock->splitGenes);
-        $right = $this->indexedBySymbol($hen->splitGenes);
-        $keys = array_values(array_unique(array_merge(array_keys($left), array_keys($right))));
-        $outcomes = [];
-
-        foreach ($keys as $key) {
-            $record = $left[$key] ?? $right[$key];
-            $sexLinked = $this->isSexLinked($record->inheritance_type);
-
-            if ($sexLinked && $hen->splitGenes->contains(fn ($gene) => ($gene->mutant_allele ?: $gene->genetic_symbol) === $key)) {
-                $outcomes[] = [
-                    'category' => 'split_gene',
-                    'name' => $record->name,
-                    'inheritance_type' => $record->inheritance_type,
-                    'status' => 'blocked',
-                    'reason' => 'Calculation unavailable. A hen cannot be represented as a conventional hidden split for a Z-linked recessive gene under AGAPORA split-gene rules.',
-                    'confidence' => 'confirmed_rule_block',
-                    'results' => [],
-                ];
-                continue;
-            }
-
-            $leftCode = isset($left[$key]) ? $left[$key]->genetic_code : null;
-            $rightCode = isset($right[$key]) ? $right[$key]->genetic_code : null;
-            $assumedCock = false;
-            $assumedHen = false;
-
-            if ($leftCode === null) {
-                $leftCode = $this->documentedNonCarrierCode($record, Bird::SEX_COCK);
-                $assumedCock = $leftCode !== null;
-            }
-            if ($rightCode === null) {
-                $rightCode = $this->documentedNonCarrierCode($record, Bird::SEX_HEN);
-                $assumedHen = $rightCode !== null;
-            }
-
-            if ($leftCode === null || $rightCode === null) {
-                $outcomes[] = [
-                    'category' => 'split_gene',
-                    'name' => $record->name,
-                    'inheritance_type' => $record->inheritance_type,
-                    'status' => 'not_calculated',
-                    'reason' => 'Calculation unavailable. Missing parental genotype for this locus, and no documented wild-type allele is stored for the unselected parent.',
-                    'confidence' => 'unknown',
-                    'results' => [],
-                ];
-                continue;
-            }
-
-            $cockSegment = $sexLinked
-                ? $this->parser->sexSpecificSegment($leftCode, Bird::SEX_COCK)
-                : ($this->parser->parseSegments($leftCode)[0]['segment'] ?? $leftCode);
-            $henSegment = $sexLinked
-                ? $this->parser->sexSpecificSegment($rightCode, Bird::SEX_HEN)
-                : ($this->parser->parseSegments($rightCode)[0]['segment'] ?? $rightCode);
-
-            $cockAlleles = $this->parser->allelePair($cockSegment);
-            $henAlleles = $this->parser->allelePair($henSegment);
-
-            $outcome = $this->locusOutcome(
-                category: 'split_gene',
-                name: $record->name,
-                locusKey: 'split:'.$key,
-                inheritanceType: $record->inheritance_type,
-                cockCode: $cockSegment,
-                henCode: $henSegment,
-                cockAlleles: $cockAlleles,
-                henAlleles: $henAlleles,
-                verificationStatus: $record->verification_status,
-                sexLinked: $sexLinked,
-                speciesId: $speciesId,
-                parentContribution: [
-                    'parent_cock' => [
-                        'record' => isset($left[$key]) ? $record->name : 'Documented non-carrier (not selected)',
-                        'code' => $cockSegment,
-                        'confidence' => $assumedCock ? 'probable' : $this->recordConfidence($record->verification_status),
-                        'assumed_non_carrier' => $assumedCock,
-                    ],
-                    'parent_hen' => [
-                        'record' => isset($right[$key]) ? $record->name : 'Documented non-carrier (not selected)',
-                        'code' => $henSegment,
-                        'confidence' => $assumedHen ? 'probable' : $this->recordConfidence($record->verification_status),
-                        'assumed_non_carrier' => $assumedHen,
-                    ],
-                ],
-            );
-            if ($assumedCock || $assumedHen) {
-                $outcome['provisional'] = true;
-                $outcome['confidence'] = 'probable';
-                $outcome['assumption_note'] = 'Unselected parent treated as documented non-carrier using the stored wild-type allele for this gene/locus.';
+                $outcome['assumption_note'] = 'The parent who does not carry this gene is the documented wild type. A recessive mutant allele from the other parent stays hidden unless the chick inherits two copies, or one Z-linked copy in a hen.';
             }
             $outcomes[] = $outcome;
         }
@@ -497,80 +377,6 @@ class RbgiaPredictor
     }
 
     /**
-     * Build a documented non-carrier genotype for an unselected parent using stored alleles only.
-     * Never invents from prose allele descriptions.
-     */
-    private function documentedNonCarrierCode(object $record, string $sex): ?string
-    {
-        $sexLinked = $this->isSexLinked($record->inheritance_type ?? null);
-        $wild = null;
-
-        if (isset($record->wild_type_allele) && is_string($record->wild_type_allele) && trim($record->wild_type_allele) !== '') {
-            $wild = trim($record->wild_type_allele);
-        }
-
-        if ($wild === null) {
-            $wild = $this->wildAlleleFromGeneticCode($record->genetic_code ?? null);
-        }
-
-        if ($wild === null) {
-            $mutant = $record->mutant_allele ?? $record->genetic_symbol ?? null;
-            if (is_string($mutant) && preg_match('/^[A-Za-z][A-Za-z0-9*_+.-]*$/', trim($mutant)) === 1) {
-                $mutant = trim($mutant);
-                if (! str_ends_with($mutant, '+') && strcasecmp($mutant, 'UNVERIFIED') !== 0) {
-                    $wild = $mutant.'+';
-                }
-            }
-        }
-
-        if (! is_string($wild) || trim($wild) === '') {
-            return null;
-        }
-
-        $wild = trim($wild);
-        if ($sexLinked) {
-            return $sex === Bird::SEX_HEN ? $wild.'/W' : $wild.'/'.$wild;
-        }
-
-        return $wild.'/'.$wild;
-    }
-
-    /**
-     * Extract a wild-type allele symbol from a stored genetic_code (e.g. dil+/dil, Pi+/Pi, op/op|op/W).
-     */
-    private function wildAlleleFromGeneticCode(?string $code): ?string
-    {
-        $segments = $this->parser->parseSegments($code);
-        if ($segments === []) {
-            return null;
-        }
-
-        foreach ($segments as $segment) {
-            foreach ($segment['alleles'] as $allele) {
-                if (strcasecmp($allele, 'W') === 0) {
-                    continue;
-                }
-                if (str_ends_with($allele, '+')) {
-                    return $allele;
-                }
-            }
-        }
-
-        foreach ($segments as $segment) {
-            foreach ($segment['alleles'] as $allele) {
-                if (strcasecmp($allele, 'W') === 0 || $allele === '') {
-                    continue;
-                }
-                if (! str_ends_with($allele, '+') && preg_match('/^[A-Za-z][A-Za-z0-9*_+.-]*$/', $allele) === 1) {
-                    return $allele.'+';
-                }
-            }
-        }
-
-        return null;
-    }
-
-    /**
      * @return array{0: ?Bird, 1: ?Bird}
      */
     private function resolveCockAndHen(Bird $parentOne, Bird $parentTwo): array
@@ -650,6 +456,14 @@ class RbgiaPredictor
         }
         unset($row);
 
+        $carrierHomozygous = $this->splitCarrierHomozygous->summarize(
+            $cockAlleles,
+            $henAlleles,
+            $sexLinked,
+            (string) $inheritanceType,
+            $results,
+        );
+
         return [
             'category' => $category,
             'name' => $name,
@@ -669,6 +483,7 @@ class RbgiaPredictor
                 'results' => $results,
             ],
             'results' => $results,
+            'carrier_homozygous' => $carrierHomozygous,
         ];
     }
 
@@ -691,8 +506,10 @@ class RbgiaPredictor
                 'hen', 'female' => 'Female / Hen',
                 default => null,
             };
+            $row['passed_from_parents'] = $this->passedFromParents($row['loci'] ?? []);
             $row['inherited_from'] = [
                 'paths' => $row['inheritance_paths'] ?? [],
+                'passed' => $row['passed_from_parents'],
             ];
 
             return $row;
@@ -773,6 +590,37 @@ class RbgiaPredictor
         return 'probable';
     }
 
+    /**
+     * One allele from the cock and one from the hen at each locus.
+     * Sex-linked alleles are the Z (or W) chromosome segment that was passed.
+     *
+     * @param  list<array<string, mixed>>  $loci
+     * @return list<array<string, mixed>>
+     */
+    private function passedFromParents(array $loci): array
+    {
+        $passed = [];
+        foreach ($loci as $locus) {
+            if (! is_array($locus)) {
+                continue;
+            }
+            $sexLinked = $this->isSexLinked($locus['inheritance_type'] ?? null)
+                || ($locus['category'] ?? null) === 'chromosomal_sex'
+                || ($locus['locus_key'] ?? null) === 'chromosomal_sex';
+            $passed[] = [
+                'locus' => $locus['name'] ?? null,
+                'category' => $locus['category'] ?? null,
+                'from_cock' => $locus['from_cock'] ?? null,
+                'from_hen' => $locus['from_hen'] ?? null,
+                'chick_genotype' => $locus['genotype'] ?? null,
+                'expression' => $locus['expression'] ?? null,
+                'basis' => $sexLinked ? 'chromosomal' : 'mendelian',
+            ];
+        }
+
+        return $passed;
+    }
+
     private function isSexLinked(?string $inheritanceType): bool
     {
         return $inheritanceType !== null && stripos($inheritanceType, 'Sex-linked') !== false;
@@ -790,34 +638,5 @@ class RbgiaPredictor
             ->merge($bird->splitGenes ?? []);
 
         return $records->contains(fn ($record) => $record && $this->needsVerification($record->verification_status));
-    }
-
-    /**
-     * @param  mixed  $records
-     * @return array<string, mixed>
-     */
-    private function indexedById($records): array
-    {
-        $indexed = [];
-        foreach ($records ?? [] as $record) {
-            $indexed['id:'.$record->id] = $record;
-        }
-
-        return $indexed;
-    }
-
-    /**
-     * @param  mixed  $records
-     * @return array<string, mixed>
-     */
-    private function indexedBySymbol($records): array
-    {
-        $indexed = [];
-        foreach ($records ?? [] as $record) {
-            $key = $record->mutant_allele ?: $record->genetic_symbol ?: ('id:'.$record->id);
-            $indexed[$key] = $record;
-        }
-
-        return $indexed;
     }
 }

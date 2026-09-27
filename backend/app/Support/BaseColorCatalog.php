@@ -55,6 +55,28 @@ class BaseColorCatalog
             'verification_status' => $color->verification_status,
             'scientific_source' => $color->scientific_source,
             'computable' => $color->computable,
+            'bl_alleles' => GeneticLocus::blAlleles($color->genetic_code),
+            'can_hide_bl_split' => GeneticLocus::canHideBlSplit($color->genetic_code),
         ];
+    }
+
+    /**
+     * @param  Collection<int, object>  $splits
+     */
+    public static function incompatibleMessage(?BaseColor $color, Collection $splits): ?string
+    {
+        if (! $color || $splits->isEmpty() || GeneticLocus::canHideBlSplit($color->genetic_code)) {
+            return null;
+        }
+
+        foreach ($splits as $split) {
+            if (! GeneticLocus::isBlLocus(SplitGeneCatalog::locusKey($split))) {
+                continue;
+            }
+
+            return $split->name.' can only stay hidden on a green-series bird. '.$color->name.' already shows both copies of the blue gene.';
+        }
+
+        return null;
     }
 }

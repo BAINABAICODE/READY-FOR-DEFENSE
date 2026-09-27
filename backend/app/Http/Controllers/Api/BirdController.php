@@ -18,10 +18,10 @@ class BirdController extends Controller
     public function index(): JsonResponse
     {
         $birds = Bird::query()
-            ->with($this->relations())
+            ->with($this->listRelations())
             ->orderByDesc('created_at')
             ->get()
-            ->map(fn (Bird $bird) => $this->transform($bird));
+            ->map(fn (Bird $bird) => $this->transformList($bird));
 
         return response()->json(['data' => $birds]);
     }
@@ -78,6 +78,27 @@ class BirdController extends Controller
         $bird->delete();
 
         return response()->json(null, 204);
+    }
+
+    /**
+     * @return list<string>
+     */
+    private function listRelations(): array
+    {
+        return [
+            'species:id,common_name,alternate_names,scientific_name',
+            'baseColor:id,name',
+            'visualMutation:id,name,sort_order',
+            'visualMutations:id,name,sort_order',
+            'splitGene:id,name,sort_order',
+            'splitGenes:id,name,sort_order',
+            'grandparents.species:id,common_name,alternate_names,scientific_name',
+            'grandparents.baseColor:id,name',
+            'grandparents.visualMutation:id,name,sort_order',
+            'grandparents.visualMutations:id,name,sort_order',
+            'grandparents.splitGene:id,name,sort_order',
+            'grandparents.splitGenes:id,name,sort_order',
+        ];
     }
 
     /**
@@ -147,6 +168,50 @@ class BirdController extends Controller
     /**
      * @return array<string, mixed>
      */
+    private function transformList(Bird $bird): array
+    {
+        $grandparents = [];
+
+        foreach (Bird::GRANDPARENT_ROLES as $role) {
+            $record = $bird->grandparents->firstWhere('role', $role);
+            $grandparents[$role] = $record ? $this->transformGrandparentList($record) : null;
+        }
+
+        return [
+            'id' => $bird->id,
+            'bird_id' => $bird->bird_id,
+            'age_months' => $bird->age_months,
+            'sex' => $bird->sex,
+            'sex_label' => $bird->sex === Bird::SEX_HEN ? 'Hen — Female' : 'Cock — Male',
+            'species_id' => $bird->species_id,
+            'base_color_id' => $bird->base_color_id,
+            'visual_mutation_id' => $bird->visual_mutation_id,
+            'visual_mutation_ids' => $this->idList($bird->visualMutations->pluck('id')->all()),
+            'split_gene_id' => $bird->split_gene_id,
+            'split_gene_ids' => $bird->splitGenes->pluck('id')->values()->all(),
+            'species' => $this->speciesPayload($bird->species),
+            'base_color' => $this->namedPayload($bird->baseColor),
+            'visual_mutation' => $this->namedPayload($bird->visualMutation),
+            'visual_mutations' => $bird->visualMutations
+                ->map(fn ($mutation) => $this->namedPayload($mutation))
+                ->filter()
+                ->values()
+                ->all(),
+            'split_gene' => $this->namedPayload($bird->splitGene),
+            'split_genes' => $bird->splitGenes
+                ->map(fn ($gene) => $this->namedPayload($gene))
+                ->filter()
+                ->values()
+                ->all(),
+            'grandparents' => $grandparents,
+            'created_at' => $bird->created_at,
+            'updated_at' => $bird->updated_at,
+        ];
+    }
+
+    /**
+     * @return array<string, mixed>
+     */
     private function transform(Bird $bird): array
     {
         $grandparents = [];
@@ -168,13 +233,7 @@ class BirdController extends Controller
             'visual_mutation_ids' => $this->idList($bird->visualMutations->pluck('id')->all()),
             'split_gene_id' => $bird->split_gene_id,
             'split_gene_ids' => $bird->splitGenes->pluck('id')->values()->all(),
-            'species' => $bird->species ? [
-                'id' => $bird->species->id,
-                'common_name' => $bird->species->common_name,
-                'alternate_names' => $bird->species->alternate_names,
-                'scientific_name' => $bird->species->scientific_name,
-                'label' => $this->speciesLabel($bird->species->common_name, $bird->species->alternate_names),
-            ] : null,
+            'species' => $this->speciesPayload($bird->species),
             'base_color' => BaseColorCatalog::geneticPayload($bird->baseColor),
             'visual_mutation' => VisualMutationCatalog::geneticPayload($bird->visualMutation),
             'visual_mutations' => $bird->visualMutations
@@ -208,13 +267,7 @@ class BirdController extends Controller
             'visual_mutation_ids' => $record->visualMutations->pluck('id')->values()->all(),
             'split_gene_id' => $record->split_gene_id,
             'split_gene_ids' => $record->splitGenes->pluck('id')->values()->all(),
-            'species' => $record->species ? [
-                'id' => $record->species->id,
-                'common_name' => $record->species->common_name,
-                'alternate_names' => $record->species->alternate_names,
-                'scientific_name' => $record->species->scientific_name,
-                'label' => $this->speciesLabel($record->species->common_name, $record->species->alternate_names),
-            ] : null,
+            'species' => $this->speciesPayload($record->species),
             'base_color' => BaseColorCatalog::geneticPayload($record->baseColor),
             'visual_mutation' => VisualMutationCatalog::geneticPayload($record->visualMutation),
             'visual_mutations' => $record->visualMutations
@@ -228,6 +281,70 @@ class BirdController extends Controller
                 ->filter()
                 ->values()
                 ->all(),
+        ];
+    }
+
+    /**
+     * @return array<string, mixed>
+     */
+    private function transformGrandparentList(BirdGrandparent $record): array
+    {
+        return [
+            'id' => $record->id,
+            'role' => $record->role,
+            'species_id' => $record->species_id,
+            'base_color_id' => $record->base_color_id,
+            'visual_mutation_id' => $record->visual_mutation_id,
+            'visual_mutation_ids' => $record->visualMutations->pluck('id')->values()->all(),
+            'split_gene_id' => $record->split_gene_id,
+            'split_gene_ids' => $record->splitGenes->pluck('id')->values()->all(),
+            'species' => $this->speciesPayload($record->species),
+            'base_color' => $this->namedPayload($record->baseColor),
+            'visual_mutation' => $this->namedPayload($record->visualMutation),
+            'visual_mutations' => $record->visualMutations
+                ->map(fn ($mutation) => $this->namedPayload($mutation))
+                ->filter()
+                ->values()
+                ->all(),
+            'split_gene' => $this->namedPayload($record->splitGene),
+            'split_genes' => $record->splitGenes
+                ->map(fn ($gene) => $this->namedPayload($gene))
+                ->filter()
+                ->values()
+                ->all(),
+        ];
+    }
+
+    /**
+     * @return array{id: int, name: string}|null
+     */
+    private function namedPayload(?object $record): ?array
+    {
+        if ($record === null || ! isset($record->id, $record->name)) {
+            return null;
+        }
+
+        return [
+            'id' => $record->id,
+            'name' => $record->name,
+        ];
+    }
+
+    /**
+     * @return array<string, mixed>|null
+     */
+    private function speciesPayload(mixed $species): ?array
+    {
+        if ($species === null) {
+            return null;
+        }
+
+        return [
+            'id' => $species->id,
+            'common_name' => $species->common_name,
+            'alternate_names' => $species->alternate_names,
+            'scientific_name' => $species->scientific_name,
+            'label' => $this->speciesLabel($species->common_name, $species->alternate_names),
         ];
     }
 

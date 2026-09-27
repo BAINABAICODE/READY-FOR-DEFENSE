@@ -76,6 +76,97 @@
   font-size: 0.95rem;
 }
 
+.bird-confirm {
+  position: fixed;
+  inset: 0;
+  z-index: 140;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  padding: 1rem;
+}
+
+.bird-confirm__backdrop {
+  position: absolute;
+  inset: 0;
+  border: 0;
+  background: rgba(6, 28, 19, 0.62);
+  cursor: pointer;
+}
+
+.bird-confirm__dialog {
+  position: relative;
+  z-index: 1;
+  width: min(100%, 32rem);
+  max-height: min(86svh, 40rem);
+  overflow: auto;
+  padding: 1.35rem 1.4rem 1.2rem;
+  border: 1px solid rgba(20, 34, 31, 0.12);
+  border-radius: 1.05rem;
+  background: #fff;
+  color: #12221c;
+  box-shadow: 0 24px 60px rgba(6, 28, 19, 0.32);
+}
+
+.bird-confirm__title {
+  margin: 0;
+  font-family: var(--font-display);
+  font-size: 1.65rem;
+  line-height: 1.15;
+  color: #0b2e1f;
+}
+
+.bird-confirm__copy {
+  margin: 0.7rem 0 0;
+  font-size: 1rem;
+  line-height: 1.5;
+  color: #3d5148;
+}
+
+.bird-confirm__error {
+  margin: 0.85rem 0 0;
+  padding: 0.65rem 0.75rem;
+  border-radius: 0.55rem;
+  background: rgba(140, 42, 32, 0.08);
+  color: #8c2a20;
+  font-size: 0.95rem;
+}
+
+.bird-confirm__history {
+  display: grid;
+  gap: 0.65rem;
+  margin: 1rem 0 0;
+  padding: 0;
+  list-style: none;
+}
+
+.bird-confirm__history li {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) auto minmax(0, 1fr);
+  gap: 0.35rem 0.55rem;
+  align-items: baseline;
+  padding-top: 0.65rem;
+  border-top: 1px solid rgba(20, 34, 31, 0.1);
+  font-size: 0.95rem;
+  line-height: 1.4;
+}
+
+.bird-confirm__history strong {
+  grid-column: 1 / -1;
+  color: #0b2e1f;
+}
+
+.bird-confirm__history span:last-child {
+  font-weight: 700;
+}
+
+.bird-confirm__actions {
+  display: flex;
+  justify-content: flex-end;
+  gap: 0.65rem;
+  margin-top: 1.15rem;
+}
+
 .birds__alert p {
   margin: 0;
 }

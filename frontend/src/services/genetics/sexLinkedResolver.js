@@ -34,16 +34,20 @@ function superscript(allele) {
   return allele ? `(${allele})` : ''
 }
 
-/** Classifies a Z-linked outcome for the breakdown table (visual/carrier × male/female). */
-export function classifySexLinkedOutcome(sex, genotype) {
+/**
+ * Classifies a Z-linked outcome for the breakdown table (visual/carrier × male/female).
+ * A single mutant Z is hidden on a recessive cock and visual on an incomplete or complete dominant cock.
+ */
+export function classifySexLinkedOutcome(sex, genotype, mode = null) {
   const alleles = String(genotype || '').split('/').map((s) => s.trim())
   const z = alleles.filter((a) => !isWChromosome(a))
   const mutantCount = z.filter((a) => a && !isWildType(a)).length
+  const dosageVisual = Boolean(mode?.incomplete || mode?.dominant)
   if (sex === 'hen') {
     return mutantCount ? 'visual female' : 'non-visual female'
   }
   if (mutantCount === 2) return 'visual male'
-  if (mutantCount === 1) return 'carrier male'
+  if (mutantCount === 1) return dosageVisual ? 'visual male' : 'carrier male'
   return 'non-carrier male'
 }
 

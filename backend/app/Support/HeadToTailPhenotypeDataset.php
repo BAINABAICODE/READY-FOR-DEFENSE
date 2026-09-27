@@ -418,6 +418,110 @@ class HeadToTailPhenotypeDataset
     }
 
     /**
+     * One stored color for each region of this mutation on this species.
+     *
+     * @return array<string, mixed>|null
+     */
+    public static function uniqueForMutation(?int $speciesId, string $mutationName): ?array
+    {
+        $map = self::compose($speciesId, [$mutationName]);
+        if ($map === null || trim($mutationName) === '') {
+            return $map;
+        }
+
+        $colors = self::mutationColors($speciesId, $mutationName);
+        if ($colors === null) {
+            return $map;
+        }
+
+        foreach (self::REGIONS as $region) {
+            $map[$region] = $colors[$region];
+        }
+
+        $map['source'] = 'Unique head-to-tail color for this visual mutation on this species.';
+        $map['phenotype_signature'] = self::signature($map);
+
+        return $map;
+    }
+
+    /**
+     * @return array<string, string>
+     */
+    public static function colorPalette(): array
+    {
+        return [
+            'Dark brown' => '#4A3428',
+            'Red-brown' => '#8C4A32',
+            'Dark red' => '#8E2430',
+            'Red' => '#D64545',
+            'Peach' => '#F3B183',
+            'Orange' => '#F07820',
+            'Orange-red' => '#E25822',
+            'Salmon' => '#F08B78',
+            'Scarlet' => '#E23B3B',
+            'Black' => '#1C1C1C',
+            'Black-brown' => '#3D2B24',
+            'Brown' => '#8A5A32',
+            'Yellow' => '#F0D040',
+            'Pale yellow' => '#F6E7A8',
+            'Cream' => '#F3E6C4',
+            'White' => '#F7F7F5',
+            'Olive' => '#8A8A32',
+            'Yellow-olive' => '#A89A3A',
+            'Yellow-green' => '#C5D15A',
+            'Green' => '#3C9A45',
+            'Grass green' => '#62B84A',
+            'Bright green' => '#2FBF55',
+            'Pale green' => '#A8D48A',
+            'Pale grass green' => '#B7D97A',
+            'Pale bright green' => '#8ED98A',
+            'Light green' => '#C5E6A8',
+            'Soft green' => '#9FCB8A',
+            'Sage' => '#8EAE78',
+            'Jade' => '#6FBF8A',
+            'Mint' => '#A8E0C0',
+            'Khaki' => '#C4B483',
+            'Dun' => '#A89070',
+            'Lime' => '#C6E05A',
+            'Chartreuse' => '#D4E157',
+            'Olive brown' => '#8A7A3A',
+            'Grey-green' => '#7D8A72',
+            'Grey' => '#8E8E8E',
+            'Pale grey' => '#D5D5D0',
+            'Dark grey' => '#5C5C5C',
+            'Slate' => '#5E6A78',
+            'Steel' => '#6A7A8A',
+            'Sky blue' => '#6EC4F0',
+            'Pale sky blue' => '#B9E3F8',
+            'Blue' => '#3A78D8',
+            'Pale blue' => '#9EC4F0',
+            'Blue-green' => '#3A9A8A',
+            'Turquoise' => '#3AABB8',
+            'Violet' => '#7A52C8',
+            'Deep violet' => '#542E96',
+            'Grey-blue' => '#7A8AA8',
+            'Charcoal' => '#3A3A3A',
+            'Green-white' => '#E7F2E4',
+            'Cream-green' => '#E4E8C8',
+            'Light orange' => '#F6B089',
+            'Red-orange' => '#E25B2A',
+        ];
+    }
+
+    /**
+     * @param  array<string, mixed>  $map
+     */
+    public static function signature(array $map): string
+    {
+        $parts = [];
+        foreach (self::REGIONS as $region) {
+            $parts[] = self::normalizeName((string) ($map[$region] ?? ''));
+        }
+
+        return sha1(implode('|', $parts));
+    }
+
+    /**
      * @return array<string, mixed>|null
      */
     public static function identityFor(?int $speciesId): ?array
@@ -744,6 +848,238 @@ class HeadToTailPhenotypeDataset
         $value = strtolower((string) $sex);
 
         return $value === 'hen' || $value === 'female';
+    }
+
+    /**
+     * @return array<string, string>|null
+     */
+    private static function mutationColors(?int $speciesId, string $mutationName): ?array
+    {
+        $colors = self::speciesColors($speciesId);
+        if ($colors === null) {
+            return null;
+        }
+
+        $key = self::normalizeName($mutationName);
+        $patch = self::mutationColorPatch($speciesId, $key, $colors);
+        foreach ($patch as $region => $color) {
+            $colors[$region] = $color;
+        }
+
+        return $colors;
+    }
+
+    /**
+     * @return array<string, string>|null
+     */
+    private static function speciesColors(?int $speciesId): ?array
+    {
+        return match ($speciesId) {
+            1 => ['eyes' => 'Dark brown', 'head' => 'Peach', 'neck' => 'Green', 'body' => 'Grass green', 'wings' => 'Green', 'rump' => 'Sky blue', 'tail' => 'Blue-green'],
+            2 => ['eyes' => 'Dark brown', 'head' => 'Orange-red', 'neck' => 'Yellow-olive', 'body' => 'Bright green', 'wings' => 'Green', 'rump' => 'Blue', 'tail' => 'Green'],
+            3 => ['eyes' => 'Dark brown', 'head' => 'Black', 'neck' => 'Yellow', 'body' => 'Green', 'wings' => 'Green', 'rump' => 'Blue', 'tail' => 'Green'],
+            4 => ['eyes' => 'Dark brown', 'head' => 'Black-brown', 'neck' => 'Yellow-green', 'body' => 'Green', 'wings' => 'Green', 'rump' => 'Blue', 'tail' => 'Green'],
+            5 => ['eyes' => 'Dark brown', 'head' => 'Salmon', 'neck' => 'Green', 'body' => 'Green', 'wings' => 'Green', 'rump' => 'Blue', 'tail' => 'Green'],
+            6 => ['eyes' => 'Dark brown', 'head' => 'Red', 'neck' => 'Green', 'body' => 'Green', 'wings' => 'Black', 'rump' => 'Green', 'tail' => 'Green'],
+            7 => ['eyes' => 'Dark brown', 'head' => 'Scarlet', 'neck' => 'Green', 'body' => 'Green', 'wings' => 'Green', 'rump' => 'Blue', 'tail' => 'Green'],
+            8 => ['eyes' => 'Dark brown', 'head' => 'Grey', 'neck' => 'Grey', 'body' => 'Green', 'wings' => 'Green', 'rump' => 'Green', 'tail' => 'Green'],
+            9 => ['eyes' => 'Dark brown', 'head' => 'Green', 'neck' => 'Black', 'body' => 'Green', 'wings' => 'Green', 'rump' => 'Red-orange', 'tail' => 'Green'],
+            default => null,
+        };
+    }
+
+    /**
+     * @param  array<string, string>  $colors
+     * @return array<string, string>
+     */
+    private static function mutationColorPatch(?int $speciesId, string $key, array $colors): array
+    {
+        $inoHead = match ($speciesId) {
+            1, 6, 8 => 'Pale yellow',
+            9 => 'Yellow-green',
+            default => 'Yellow',
+        };
+        $inoNeck = match ($speciesId) {
+            1, 6, 7 => $colors['neck'],
+            2 => 'Pale yellow',
+            3 => 'Yellow',
+            4 => 'Pale green',
+            5 => 'Soft green',
+            8 => 'Pale grey',
+            9 => 'Pale yellow',
+            default => 'Pale yellow',
+        };
+        $diluteBody = match ($speciesId) {
+            1 => 'Pale grass green',
+            2 => 'Pale bright green',
+            4 => 'Light green',
+            5 => 'Soft green',
+            6 => 'Sage',
+            default => 'Pale green',
+        };
+        $diluteRump = match ($colors['rump']) {
+            'Sky blue' => 'Pale sky blue',
+            'Blue' => 'Pale blue',
+            'Red-orange' => 'Light orange',
+            'Green' => 'Pale green',
+            default => 'Pale blue',
+        };
+
+        return match ($key) {
+            'cinnamon' => [
+                'eyes' => 'Red-brown',
+                'head' => in_array($speciesId, [3, 4], true) ? 'Brown' : $colors['head'],
+                'neck' => $speciesId === 9 ? 'Brown' : $colors['neck'],
+                'body' => 'Yellow-green',
+                'wings' => $speciesId === 6 ? 'Brown' : 'Olive brown',
+            ],
+            'sl ino', 'nsl ino' => [
+                'eyes' => 'Red',
+                'head' => $inoHead,
+                'neck' => $inoNeck,
+                'body' => 'Yellow',
+                'wings' => $speciesId === 6 ? 'Pale yellow' : 'Yellow',
+                'rump' => 'Pale yellow',
+                'tail' => 'Pale yellow',
+            ],
+            'pallid' => [
+                'body' => 'Light green',
+                'wings' => 'Olive brown',
+            ],
+            'pale' => [
+                'body' => 'Soft green',
+                'wings' => 'Pale green',
+            ],
+            'opaline' => [
+                'rump' => match ($colors['rump']) {
+                    'Sky blue' => 'Turquoise',
+                    'Blue' => 'Blue-green',
+                    'Red-orange' => 'Orange',
+                    default => 'Olive',
+                },
+            ],
+            'violet' => [
+                'body' => 'Violet',
+                'rump' => 'Violet',
+            ],
+            'double violet' => [
+                'body' => 'Deep violet',
+                'rump' => 'Deep violet',
+            ],
+            'pale headed' => [
+                'head' => $speciesId === 1 ? 'Cream' : 'Pale yellow',
+            ],
+            'pale headed df' => [
+                'head' => 'White',
+            ],
+            'grey factor' => [
+                'body' => 'Grey-green',
+                'wings' => 'Grey-green',
+                'rump' => 'Grey-blue',
+            ],
+            'grey factor df' => [
+                'body' => 'Grey',
+                'wings' => 'Grey',
+                'rump' => 'Grey',
+            ],
+            'bronze fallow' => [
+                'eyes' => 'Dark red',
+                'head' => $speciesId === 6 ? 'Salmon' : $colors['head'],
+                'body' => 'Khaki',
+                'wings' => 'Brown',
+            ],
+            'pale fallow' => [
+                'eyes' => 'Red',
+                'head' => $speciesId === 6 ? 'Salmon' : $colors['head'],
+                'body' => 'Pale yellow',
+                'wings' => $speciesId === 6 ? 'Brown' : 'Pale yellow',
+            ],
+            'dun fallow' => [
+                'eyes' => 'Red-brown',
+                'body' => 'Dun',
+                'wings' => 'Brown',
+            ],
+            'dilute' => [
+                'body' => $diluteBody,
+                'wings' => $speciesId === 6 ? 'Charcoal' : 'Pale green',
+                'rump' => $diluteRump,
+            ],
+            'marbled' => [
+                'body' => 'Lime',
+                'wings' => 'Lime',
+            ],
+            'dm jade' => [
+                'eyes' => 'Red-brown',
+                'body' => 'Jade',
+                'wings' => 'Pale green',
+            ],
+            'recessive pied' => [
+                'head' => 'White',
+                'body' => 'White',
+                'wings' => 'White',
+                'tail' => 'White',
+            ],
+            'dominant pied' => [
+                'head' => 'Cream',
+                'body' => 'Cream-green',
+                'wings' => 'Pale green',
+            ],
+            'orange face' => [
+                'head' => 'Orange',
+            ],
+            'dark eyed clear' => [
+                'head' => 'Cream',
+                'body' => 'Yellow',
+                'wings' => 'Yellow',
+                'rump' => 'Pale yellow',
+                'tail' => 'Pale yellow',
+            ],
+            'pastel' => [
+                'body' => 'Chartreuse',
+                'wings' => 'Yellow-green',
+            ],
+            'dominant edged' => [
+                'body' => 'Mint',
+                'wings' => 'Mint',
+            ],
+            'dominant edged df' => [
+                'head' => in_array($speciesId, [2, 3, 4, 5], true) ? 'Cream' : $colors['head'],
+                'body' => 'Pale yellow',
+                'wings' => 'Cream',
+            ],
+            'euwing' => [
+                'body' => 'Pale green',
+            ],
+            'euwing df' => [
+                'body' => 'Cream',
+            ],
+            'misty' => [
+                'body' => 'Grey-green',
+                'wings' => $speciesId === 6 ? 'Charcoal' : 'Grey-green',
+            ],
+            'misty df' => [
+                'body' => $speciesId === 6 ? 'Khaki' : 'Olive',
+                'wings' => $speciesId === 6 ? 'Dark grey' : 'Olive',
+            ],
+            'slaty' => [
+                'body' => 'Steel',
+                'wings' => 'Steel',
+                'rump' => 'Slate',
+            ],
+            'sl greywing' => [
+                'body' => 'Pale green',
+                'wings' => 'Grey',
+            ],
+            'sl greywing df' => [
+                'body' => 'Light green',
+                'wings' => 'Dark grey',
+            ],
+            'dominant reduced' => [
+                'body' => 'Yellow-green',
+                'wings' => 'Yellow-green',
+            ],
+            default => [],
+        };
     }
 
     public static function normalizeName(string $name): string

@@ -396,6 +396,7 @@ class AgaporaGeneticEngine
                 'inheritance_classes' => $this->inheritanceClassesFromLoci($row['loci'] ?? [], $splits),
                 'loci' => $row['loci'] ?? [],
                 'inheritance_paths' => $row['inheritance_paths'] ?? [],
+                'passed_from_parents' => $row['passed_from_parents'] ?? [],
             ];
         }
 

@@ -5,6 +5,7 @@ namespace App\Http\Controllers\Api;
 use App\Http\Controllers\Controller;
 use App\Models\LovebirdSpecies;
 use App\Models\VisualMutation;
+use App\Support\CatalogResponseCache;
 use App\Support\VisualMutationCatalog;
 use Illuminate\Http\JsonResponse;
 use Illuminate\Http\Request;
@@ -43,8 +44,9 @@ class VisualMutationController extends Controller
             $query->where('verification_status', $request->string('verification_status'));
         }
 
-        $items = $query->get();
-        $payloads = $this->transformMany($items);
+        $payloads = CatalogResponseCache::remember($request, 'visual-mutations', function () use ($query) {
+            return $this->transformMany($query->get());
+        });
 
         return response()->json(['data' => $payloads]);
     }

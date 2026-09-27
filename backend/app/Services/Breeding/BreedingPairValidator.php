@@ -6,6 +6,7 @@ use App\Models\Bird;
 use App\Models\BreedingSafetyRule;
 use App\Models\SpeciesBreedingCompatibility;
 use App\Support\BaseColorCatalog;
+use App\Support\GeneticLocus;
 use App\Support\MutationGroundApplicability;
 use App\Support\SplitGeneCatalog;
 use App\Support\VisualMutationCatalog;
@@ -253,11 +254,21 @@ class BreedingPairValidator
                 'invalid_base_color',
                 "{$label}: This base color is not documented for the selected species.",
             );
+        } elseif ($bird->baseColor) {
+            $colorMessage = BaseColorCatalog::incompatibleMessage($bird->baseColor, $bird->splitGenes);
+            if ($colorMessage) {
+                $findings[] = $this->finding('error', 'invalid_base_color', "{$label}: {$colorMessage}");
+            }
         }
 
         $mutationIds = $bird->visualMutations->pluck('id')->map(fn ($id) => (int) $id)->all();
         if ($mutationIds !== []) {
-            $message = VisualMutationCatalog::incompatibleMessage($mutationIds, (int) $bird->species_id);
+            $message = VisualMutationCatalog::incompatibleMessage(
+                $mutationIds,
+                (int) $bird->species_id,
+                $bird->sex,
+                $bird->splitGenes,
+            );
             if ($message) {
                 $speciesMismatch = str_contains($message, 'belong to the selected species');
                 $findings[] = $this->finding(
@@ -265,7 +276,7 @@ class BreedingPairValidator
                     $speciesMismatch ? 'invalid_visual_mutation' : 'invalid_mutation_combination',
                     $speciesMismatch
                         ? "{$label}: This visual mutation is not documented for the selected species."
-                        : "{$label}: This mutation combination has not been validated for this species and cannot be used for a definitive prediction.",
+                        : "{$label}: {$message}",
                 );
             }
 
@@ -281,7 +292,13 @@ class BreedingPairValidator
 
         $geneIds = $bird->splitGenes->pluck('id')->map(fn ($id) => (int) $id)->all();
         if ($geneIds !== []) {
-            $message = SplitGeneCatalog::incompatibleMessage($geneIds, (int) $bird->species_id, $bird->sex);
+            $message = SplitGeneCatalog::incompatibleMessage(
+                $geneIds,
+                (int) $bird->species_id,
+                $bird->sex,
+                $bird->baseColor,
+                $bird->visualMutations,
+            );
             if ($message) {
                 $findings[] = $this->finding(
                     'error',
@@ -398,12 +415,24 @@ class BreedingPairValidator
     {
         $symbols = [];
 
+        foreach ($bird->visualMutations as $mutation) {
+            $type = (string) $mutation->inheritance_type;
+            if (stripos($type, 'recessive') === false || stripos($type, 'dominant') !== false) {
+                continue;
+            }
+            $token = GeneticLocus::tokenFromAlleleText($mutation->allele);
+            if ($token) {
+                $symbols[$token] = $mutation->name;
+            }
+        }
+
         foreach ($bird->splitGenes as $gene) {
-            if (strcasecmp((string) $gene->inheritance_type, 'Autosomal recessive') !== 0) {
+            if (strcasecmp((string) $gene->inheritance_type, 'Autosomal recessive') !== 0
+                && stripos((string) $gene->inheritance_type, 'Sex-linked recessive') === false) {
                 continue;
             }
             if ($gene->mutant_allele) {
-                $symbols[$gene->mutant_allele] = $gene->name;
+                $symbols[$gene->mutant_allele] = $symbols[$gene->mutant_allele] ?? $gene->name;
             }
         }
 

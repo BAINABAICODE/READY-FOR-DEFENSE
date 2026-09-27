@@ -5,6 +5,7 @@ namespace App\Http\Controllers\Api;
 use App\Http\Controllers\Controller;
 use App\Models\LovebirdSpecies;
 use App\Models\SplitGene;
+use App\Support\CatalogResponseCache;
 use App\Support\SplitGeneCatalog;
 use Illuminate\Http\JsonResponse;
 use Illuminate\Http\Request;
@@ -51,7 +52,12 @@ class SplitGeneController extends Controller
             $query->where('verification_status', $request->string('verification_status'));
         }
 
-        $items = $query->get()->map(fn (SplitGene $gene) => SplitGeneCatalog::geneticPayload($gene));
+        $items = CatalogResponseCache::remember($request, 'split-genes', function () use ($query) {
+            return $query->get()
+                ->map(fn (SplitGene $gene) => SplitGeneCatalog::geneticPayload($gene))
+                ->values()
+                ->all();
+        });
 
         return response()->json(['data' => $items]);
     }

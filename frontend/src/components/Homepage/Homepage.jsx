@@ -80,10 +80,6 @@ export default function Homepage() {
               <a className="btn btn--gold" href="#breeding">
                 Start Breeding
               </a>
-              <button type="button" className="btn btn--outline" onClick={handleNext}>
-                Explore species
-                <span aria-hidden="true"> →</span>
-              </button>
             </div>
           </div>
 

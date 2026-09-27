@@ -61,6 +61,7 @@ export const EXPRESSION_LABELS = Object.freeze({
   visual_single_factor: 'Visual (single factor)',
   visual_double: 'Visual (double factor)',
   visual_double_factor: 'Visual (double factor)',
+  visual_compound: 'Visual (allelic compound)',
 })
 
 export const SEX_CHROMOSOMES = Object.freeze({

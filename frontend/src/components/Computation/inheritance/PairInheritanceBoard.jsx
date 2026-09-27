@@ -1,5 +1,6 @@
 import { useMemo, useState } from 'react'
 import { describeAllele } from '../../../services/genetics'
+import { barColor } from '../shared/format'
 
 function toPercent(value) {
   if (typeof value === 'number' && Number.isFinite(value)) {
@@ -103,7 +104,7 @@ function ChartGroup({ title, rows, nameResolver, empty }) {
                 <strong>{formatPercent(pct)}</strong>
               </div>
               <div className="inherit-chart__track" role="img" aria-label={`${name} ${formatPercent(pct)}`}>
-                <span style={{ width: `${Math.max(2, Math.min(100, pct))}%` }} />
+                <span style={{ width: `${Math.max(2, Math.min(100, pct))}%`, background: barColor(name, index) }} />
               </div>
             </li>
           )

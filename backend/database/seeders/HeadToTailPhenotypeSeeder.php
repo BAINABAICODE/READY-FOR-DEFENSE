@@ -14,6 +14,7 @@ class HeadToTailPhenotypeSeeder extends Seeder
     public function run(): void
     {
         $kept = [];
+        $signatures = [];
 
         foreach (HeadToTailPhenotypeDataset::speciesIdentities() as $speciesId => $identity) {
             $species = LovebirdSpecies::query()->find($speciesId);
@@ -31,22 +32,38 @@ class HeadToTailPhenotypeSeeder extends Seeder
                     'mutation_name' => null,
                     'pigment_notes' => $identity['pigment_notes'] ?? null,
                     'source' => $identity['source'] ?? null,
+                    'phenotype_signature' => HeadToTailPhenotypeDataset::signature($identity),
                 ]),
             );
+            $signature = (string) $row->phenotype_signature;
+            if ($signature === '' || in_array($signature, $signatures, true)) {
+                throw new RuntimeException(
+                    "Head-to-tail species identity for species {$species->id} is not unique."
+                );
+            }
+            $signatures[] = $signature;
             $kept[] = $row->id;
         }
 
         $mutations = VisualMutation::query()->orderBy('id')->get();
         foreach ($mutations as $mutation) {
-            $composed = HeadToTailPhenotypeDataset::compose(
+            $composed = HeadToTailPhenotypeDataset::uniqueForMutation(
                 $mutation->lovebird_species_id,
-                [$mutation->name],
+                $mutation->name,
             );
             if ($composed === null) {
                 throw new RuntimeException(
                     "No species identity for visual mutation {$mutation->name} (species {$mutation->lovebird_species_id})."
                 );
             }
+
+            $signature = (string) ($composed['phenotype_signature'] ?? '');
+            if ($signature === '' || in_array($signature, $signatures, true)) {
+                throw new RuntimeException(
+                    "Head-to-tail phenotype for {$mutation->name} (species {$mutation->lovebird_species_id}) is not unique."
+                );
+            }
+            $signatures[] = $signature;
 
             $row = HeadToTailPhenotype::query()->updateOrCreate(
                 [
@@ -58,6 +75,7 @@ class HeadToTailPhenotypeSeeder extends Seeder
                     'mutation_name' => $mutation->name,
                     'pigment_notes' => $composed['pigment_notes'] ?? $mutation->phenotype,
                     'source' => $mutation->scientific_source ?: ($composed['source'] ?? null),
+                    'phenotype_signature' => $signature,
                 ]),
             );
             $kept[] = $row->id;

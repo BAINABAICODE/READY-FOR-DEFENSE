@@ -2,6 +2,7 @@
 
 namespace Tests\Feature;
 
+use App\Models\AuthToken;
 use Illuminate\Foundation\Testing\RefreshDatabase;
 use Tests\TestCase;
 
@@ -74,6 +75,25 @@ class AuthLoginTest extends TestCase
         $this->withToken($token)->postJson('/api/auth/logout')->assertOk();
 
         $this->withToken($token)->getJson('/api/birds')->assertUnauthorized();
+    }
+
+    public function test_repeated_requests_skip_rewriting_the_token_timestamp(): void
+    {
+        $this->postJson('/api/auth/register', $this->validRegistration())->assertCreated();
+
+        $token = $this->postJson('/api/auth/login', [
+            'email' => 'ava.santos@gmail.com',
+            'password' => 'lovebird1',
+        ])->assertOk()->json('token');
+
+        $this->withToken($token)->getJson('/api/auth/me')->assertOk();
+        $stamp = AuthToken::query()->value('last_used_at');
+
+        $this->travel(1)->minute();
+
+        $this->withToken($token)->getJson('/api/auth/me')->assertOk();
+
+        $this->assertSame((string) $stamp, (string) AuthToken::query()->value('last_used_at'));
     }
 
     public function test_login_rejects_unknown_credentials_without_confirming_the_account(): void

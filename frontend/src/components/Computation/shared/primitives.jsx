@@ -1,12 +1,12 @@
 import { alleleClass, describeAllele } from '../../../services/genetics'
-import { percentText } from './format'
+import { barColor, percentText } from './format'
 
-export function ProbabilityBar({ probability, label, tone = 'brand', compact = false }) {
+export function ProbabilityBar({ probability, label, tone = 'brand', compact = false, color }) {
   const pct = Math.max(0, Math.min(100, (Number(probability) || 0) * 100))
   return (
     <div className={`gx-bar is-${tone}${compact ? ' is-compact' : ''}`} role="img" aria-label={`${label ? `${label}: ` : ''}${percentText(probability)}`}>
       <div className="gx-bar__track" aria-hidden="true">
-        <div className="gx-bar__fill" style={{ width: `${pct}%` }} />
+        <div className="gx-bar__fill" style={{ width: `${pct}%`, background: color || barColor(label) }} />
       </div>
       <span className="gx-bar__value" aria-hidden="true">{percentText(probability)}</span>
     </div>
